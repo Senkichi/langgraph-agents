@@ -6,6 +6,7 @@ APPROVE (intent achieved), REVISE (intent gaps found), SKIP (environment can't
 support execution).
 """
 
+import os
 import re
 
 from langgraph_agents.claude_cli import invoke_agent
@@ -74,36 +75,83 @@ def _extract_changed_files(diff: str) -> list[str]:
 
 
 def _suggest_test_commands(changed_files: list[str]) -> str:
-    """Map changed source files to likely test commands.
+    """Map changed source files to targeted test commands.
 
-    Returns a markdown section with suggested pytest commands, or empty
-    string if no source files were changed.
+    Prefers direct test file paths (tests/test_<module>.py) over -k matching.
+    Also surfaces changed non-Python files for manual test discovery.
     """
-    test_targets: list[str] = []
+    commands: list[str] = []
+    non_python_changed: list[str] = []
+    seen: set[str] = set()
+
     for f in changed_files:
-        # Skip non-Python files and test files themselves
-        if not f.endswith(".py") or "/test_" in f or f.startswith("test_"):
+        if not f.endswith(".py"):
+            non_python_changed.append(f)
             continue
-        # Extract module basename: "src/pkg/foo.py" → "foo"
+        if "/test_" in f or f.startswith("test_"):
+            continue
         basename = f.rsplit("/", 1)[-1].removesuffix(".py")
-        test_targets.append(basename)
+        if basename in seen:
+            continue
+        seen.add(basename)
 
-    if not test_targets:
-        return ""
+        test_file = f"tests/test_{basename}.py"
+        if os.path.exists(test_file):
+            commands.append(f"- `uv run pytest {test_file} -x --tb=short`")
+        else:
+            commands.append(
+                f"- `uv run pytest tests/ -k '{basename}' -x --tb=short`"
+            )
 
-    commands = [
-        f"- `uv run pytest tests/ -k '{name}' -x --tb=short`"
-        for name in sorted(set(test_targets))[:5]
-    ]
-    return "## Suggested Test Commands\n" + "\n".join(commands)
+        if len(commands) >= 5:
+            break
+
+    section_parts: list[str] = []
+
+    if commands:
+        section_parts.append("## Suggested Test Commands\n" + "\n".join(commands))
+
+    if non_python_changed:
+        file_list = "\n".join(f"- `{f}`" for f in sorted(non_python_changed)[:10])
+        section_parts.append(
+            "## Changed Non-Python Files (locate tests manually)\n" + file_list
+        )
+
+    return "\n\n".join(section_parts)
+
+
+def _extract_proposed_fixes(report: str) -> str:
+    """Extract only the PROPOSED FIXES block from a prior e2e report.
+
+    Returns an empty string if the block is not found. Deliberately narrow —
+    passes only actionable fixes to avoid anchoring the current evaluation.
+    """
+    lines = report.splitlines()
+    in_fixes = False
+    fixes_lines: list[str] = []
+
+    for line in lines:
+        if line.startswith("PROPOSED FIXES:"):
+            in_fixes = True
+            rest = line.split(":", 1)[1].strip()
+            if rest:
+                fixes_lines.append(rest)
+        elif in_fixes:
+            if line.startswith("VERDICT:") or (
+                line.isupper() and line.endswith(":") and len(line) > 2
+            ):
+                break
+            fixes_lines.append(line)
+
+    return "\n".join(fixes_lines).strip()
 
 
 def _build_e2e_context(state: ParentState) -> str:
     """Build the prompt for the e2e test agent.
 
     Deliberately excludes any prior e2e_report to avoid anchoring bias —
-    the agent evaluates the workspace fresh each time. Includes
-    pre-computed test commands derived from the code diff.
+    the agent evaluates the workspace fresh each time. On subsequent cycles,
+    surfaces only PROPOSED FIXES as a regression checklist.
     """
     parts = [
         f"## Task\n{state['task']}",
@@ -115,6 +163,20 @@ def _build_e2e_context(state: ParentState) -> str:
         test_cmds = _suggest_test_commands(_extract_changed_files(code_diff))
         if test_cmds:
             parts.append(test_cmds)
+
+    # On subsequent cycles, surface prior proposed fixes as a regression checklist.
+    e2e_cycle = state.get("e2e_cycle", 0)
+    if e2e_cycle > 0:
+        prior_fixes = _extract_proposed_fixes(state.get("e2e_report", ""))
+        if prior_fixes:
+            parts.append(
+                "## Regression Checklist (from prior e2e cycle)\n"
+                "The following fixes were requested in the previous cycle. "
+                "Verify that they were applied, but evaluate the overall workspace "
+                "independently — do not assume success just because they were requested.\n\n"
+                + prior_fixes
+            )
+
     parts.append(
         "Validate that the code achieves the intent described above. "
         "Run the suggested test commands (or targeted equivalents), examine "

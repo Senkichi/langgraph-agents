@@ -8,7 +8,7 @@ from langgraph_agents.claude_cli import invoke_agent
 from langgraph_agents.config import CODER_BUDGET_USD, CODER_MODEL, CODER_TIMEOUT
 from langgraph_agents.node_contract import is_path, non_empty, validate_node
 from langgraph_agents.state import BuildReviewState
-from langgraph_agents.tools.dev_tools import run_git_diff
+from langgraph_agents.tools.dev_tools import run_git_diff, truncate_diff
 
 CODER_SYSTEM_PROMPT = (
     "You are an expert software engineer. Implement the approved plan precisely.\n\n"
@@ -49,7 +49,8 @@ def _build_coder_context(state: BuildReviewState) -> str:
     if state.get("build_feedback"):
         parts.append(f"## Reviewer Feedback\n{state['build_feedback']}")
         if state.get("code_diff"):
-            parts.append(f"## Current Code Diff\n```diff\n{state['code_diff']}\n```")
+            diff = truncate_diff(state["code_diff"])
+            parts.append(f"## Current Code Diff\n```diff\n{diff}\n```")
     return "\n\n".join(parts)
 
 

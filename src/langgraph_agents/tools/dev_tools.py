@@ -37,3 +37,21 @@ def run_git_diff(workspace_path: str) -> str:
         return "(no changes detected)"
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return "(git diff unavailable)"
+
+
+DIFF_MAX_CHARS = 16_000
+
+
+def truncate_diff(diff: str) -> str:
+    """Truncate a large diff, keeping the tail (most recent changes).
+
+    Keeps the tail since earlier changes are already reflected in the workspace.
+    Finds a hunk boundary to avoid mid-hunk splits.
+    """
+    if len(diff) <= DIFF_MAX_CHARS:
+        return diff
+    truncated = diff[-DIFF_MAX_CHARS:]
+    hunk_start = truncated.find("\n@@")
+    if hunk_start > 0:
+        truncated = truncated[hunk_start + 1:]
+    return f"[diff truncated — showing last {len(truncated)} chars]\n{truncated}"

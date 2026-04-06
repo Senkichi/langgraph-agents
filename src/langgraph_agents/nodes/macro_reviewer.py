@@ -45,6 +45,18 @@ SYSTEM_PROMPT = (
 
 REVIEW_TOOLS = ["Read", "Glob", "Grep", "Bash"]
 
+_PLAN_CONTEXT_LIMIT = 1500
+
+
+def _truncate_plan_for_reviewer(plan: str) -> str:
+    if len(plan) <= _PLAN_CONTEXT_LIMIT:
+        return plan
+    return (
+        plan[:_PLAN_CONTEXT_LIMIT]
+        + f"\n\n... [plan truncated at {_PLAN_CONTEXT_LIMIT} chars — "
+        "read the full plan from the workspace if alignment verification requires it]"
+    )
+
 
 @validate_node(
     pre={"current_plan": non_empty, "workspace_path": is_path},
@@ -54,7 +66,7 @@ def macro_review(state: BuildReviewState) -> dict:
     """Macro-level architecture review using claude CLI."""
     workspace = state["workspace_path"]
     content = (
-        f"## Approved Plan\n{state['current_plan']}\n\n"
+        f"## Approved Plan\n{_truncate_plan_for_reviewer(state['current_plan'])}\n\n"
         f"## Code Diff to Review\n```diff\n{state.get('code_diff', '')}\n```\n\n"
         "Review the architecture and design. Read the full files to understand "
         "the structure. Then provide your final verdict."

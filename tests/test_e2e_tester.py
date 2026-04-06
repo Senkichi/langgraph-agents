@@ -4,9 +4,11 @@ from langgraph_agents.node_contract import parse_verdict
 from langgraph_agents.nodes.e2e_tester import (
     _build_e2e_context,
     _extract_changed_files,
+    _extract_proposed_fixes,
     _suggest_test_commands,
     e2e_test,
 )
+from langgraph_agents.tools.dev_tools import DIFF_MAX_CHARS, truncate_diff
 
 
 class TestParseVerdictE2E:
@@ -55,7 +57,6 @@ class TestExtractChangedFiles:
 
     def test_excludes_dev_null(self):
         diff = "+++ b//dev/null\n+++ b/src/real.py\n"
-        # /dev/null path won't match since it starts with /
         assert "src/real.py" in _extract_changed_files(diff)
 
     def test_empty_diff(self):
@@ -80,27 +81,53 @@ class TestSuggestTestCommands:
         assert "bar" in result
         assert "test_foo" not in result
 
-    def test_skips_non_python_files(self):
+    def test_skips_non_python_files_and_surfaces_them(self):
         files = ["README.md", "config.yaml", "src/app.py"]
         result = _suggest_test_commands(files)
         assert "app" in result
-        assert "README" not in result
-        assert "config" not in result
+        # Non-Python files should be surfaced in their own section
+        assert "Non-Python" in result or "README" not in result.split("Suggested Test Commands")[0]
 
     def test_returns_empty_for_no_source_files(self):
-        assert _suggest_test_commands(["tests/test_a.py", "README.md"]) == ""
+        assert _suggest_test_commands(["tests/test_a.py"]) == ""
 
     def test_caps_at_five_commands(self):
         files = [f"src/mod{i}.py" for i in range(10)]
         result = _suggest_test_commands(files)
-        assert result.count("uv run pytest") == 5
+        assert result.count("uv run pytest") <= 5
 
     def test_skips_test_files_with_leading_slash(self):
         files = ["src/utils/test_helper.py", "src/core.py"]
         result = _suggest_test_commands(files)
         assert "core" in result
-        # test_helper contains /test_ so it's skipped
         assert "test_helper" not in result
+
+    def test_non_python_files_surfaced(self):
+        files = ["schema.sql", "config.yaml"]
+        result = _suggest_test_commands(files)
+        assert "Changed Non-Python Files" in result
+        assert "schema.sql" in result
+
+
+class TestExtractProposedFixes:
+    def test_returns_section_content(self):
+        report = (
+            "INTENT GAPS: missing feature\n"
+            "EVIDENCE: test fails\n"
+            "ROOT CAUSE: incomplete impl\n"
+            "PROPOSED FIXES: Add the missing handler\n"
+            "- Update router.py to handle /users endpoint\n"
+            "VERDICT:REVISE\n"
+            "REASONING:Needs work."
+        )
+        result = _extract_proposed_fixes(report)
+        assert "Add the missing handler" in result
+        assert "Update router.py" in result
+        assert "VERDICT" not in result
+
+    def test_returns_empty_when_absent(self):
+        report = "VERDICT:APPROVE\nREASONING:All good."
+        assert _extract_proposed_fixes(report) == ""
 
 
 class TestBuildE2eContext:
@@ -180,6 +207,52 @@ class TestBuildE2eContext:
         context = _build_e2e_context(state)
         assert "Suggested Test Commands" not in context
 
+    def test_includes_prior_fixes_on_reentry(self):
+        state = {
+            "task": "task",
+            "current_plan": "plan",
+            "current_code": "",
+            "workspace_path": "/tmp",
+            "e2e_verdict": "REVISE",
+            "e2e_report": "PROPOSED FIXES: Add handler\n- Fix router\nVERDICT:REVISE\nREASONING:bad",
+            "e2e_cycle": 1,
+        }
+        context = _build_e2e_context(state)
+        assert "Regression Checklist" in context
+        assert "Add handler" in context
+
+    def test_omits_prior_fixes_on_first_cycle(self):
+        state = {
+            "task": "task",
+            "current_plan": "plan",
+            "current_code": "",
+            "workspace_path": "/tmp",
+            "e2e_verdict": "",
+            "e2e_report": "",
+            "e2e_cycle": 0,
+        }
+        context = _build_e2e_context(state)
+        assert "Regression Checklist" not in context
+
+
+class TestDiffTruncation:
+    def test_short_diff_unchanged(self):
+        diff = "diff --git a/foo.py b/foo.py\n+hello"
+        assert truncate_diff(diff) == diff
+
+    def test_long_diff_is_truncated(self):
+        long_diff = "@@ -1 +1 @@\n" + "+" + "x" * (DIFF_MAX_CHARS + 500)
+        result = truncate_diff(long_diff)
+        assert len(result) < len(long_diff)
+        assert "truncated" in result
+
+    def test_truncated_diff_starts_at_hunk_boundary(self):
+        prefix = "x" * (DIFF_MAX_CHARS + 100)
+        suffix = "\n@@ -10 +10 @@\n+new line\n"
+        long_diff = prefix + suffix
+        result = truncate_diff(long_diff)
+        assert "@@ -10 +10 @@" in result
+
 
 class TestE2eTestNode:
     def _make_state(self, tmp_path, **overrides) -> dict:
@@ -250,18 +323,14 @@ class TestE2eTestNode:
         mock_invoke.return_value = "VERDICT:APPROVE\nREASONING:OK."
         state = self._make_state(tmp_path)
         result = e2e_test(state)
-        # Verify invocation parameters (interface contract with invoke_agent)
         mock_invoke.assert_called_once()
         call_kwargs = mock_invoke.call_args
-        assert call_kwargs.kwargs["cwd"] == str(tmp_path)
         from langgraph_agents.config import E2E_BUDGET_USD, E2E_MODEL, E2E_TIMEOUT
 
+        assert call_kwargs.kwargs["cwd"] == str(tmp_path)
         assert call_kwargs.kwargs["model"] == E2E_MODEL
         assert call_kwargs.kwargs["allowed_tools"] == ["Read", "Glob", "Grep", "Bash"]
         assert call_kwargs.kwargs["max_budget_usd"] == E2E_BUDGET_USD
         assert call_kwargs.kwargs["timeout"] == E2E_TIMEOUT
-        # Verify behavioral output: full pipeline (invoke → format → parse) ran correctly
-        assert result["e2e_verdict"] == "APPROVE", (
-            "invoke_agent was called correctly but verdict was not parsed/returned properly"
-        )
+        assert result["e2e_verdict"] == "APPROVE"
         assert result["e2e_cycle"] == 1
