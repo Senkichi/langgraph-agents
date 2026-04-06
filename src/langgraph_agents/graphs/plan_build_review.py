@@ -102,6 +102,13 @@ def _route_after_e2e(state: ParentState) -> str:
     return "build_review"
 
 
+def _route_entry(state: ParentState) -> str:
+    """Skip plan review when caller has a pre-validated plan."""
+    if state.get("skip_plan_review"):
+        return "build_review"
+    return "plan_review"
+
+
 def build_plan_build_review_graph() -> StateGraph:
     """Build the parent graph composing plan-review, build-review, and e2e-test."""
     graph = StateGraph(ParentState)
@@ -110,7 +117,11 @@ def build_plan_build_review_graph() -> StateGraph:
     graph.add_node("build_review", _call_build_review)
     graph.add_node("e2e_test", e2e_test, retry_policy=_SUBPROCESS_RETRY)
 
-    graph.add_edge(START, "plan_review")
+    graph.add_conditional_edges(
+        START,
+        _route_entry,
+        {"plan_review": "plan_review", "build_review": "build_review"},
+    )
     graph.add_edge("plan_review", "build_review")
     graph.add_edge("build_review", "e2e_test")
     graph.add_conditional_edges(

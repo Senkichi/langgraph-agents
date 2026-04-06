@@ -11,6 +11,7 @@ class ParentState(TypedDict):
     e2e_verdict: str  # "APPROVE" | "REVISE" | "SKIP" | ""
     e2e_report: str  # LLM-optimized diagnostic report (or skip reason)
     e2e_cycle: int  # 0 → max 2
+    skip_plan_review: bool  # True = bypass plan_review, go straight to build_review
 
 
 class PlanReviewState(TypedDict):

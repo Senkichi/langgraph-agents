@@ -4,6 +4,7 @@ from langgraph.graph import END
 
 from langgraph_agents.graphs.plan_build_review import (
     _route_after_e2e,
+    _route_entry,
     build_plan_build_review_graph,
 )
 
@@ -70,6 +71,20 @@ class TestE2eRouting:
         """Empty verdict (shouldn't happen) is treated as REVISE."""
         state = self._make_state(verdict="", cycle=0)
         assert _route_after_e2e(state) == "build_review"
+
+
+class TestSkipPlanReview:
+    def test_skip_plan_review_routes_start_to_build_review(self):
+        state = {"skip_plan_review": True}
+        assert _route_entry(state) == "build_review"
+
+    def test_no_skip_routes_start_to_plan_review(self):
+        state = {"skip_plan_review": False}
+        assert _route_entry(state) == "plan_review"
+
+    def test_missing_flag_defaults_to_plan_review(self):
+        state = {}
+        assert _route_entry(state) == "plan_review"
 
 
 class TestCheckpointing:
