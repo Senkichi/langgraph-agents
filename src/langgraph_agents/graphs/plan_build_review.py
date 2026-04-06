@@ -37,6 +37,7 @@ from langgraph_agents.state import (
     BuildReviewState,
     ParentState,
 )
+from langgraph_agents.tracer import get_tracer, traced_route
 
 MAX_E2E_CYCLES = 2
 
@@ -53,6 +54,10 @@ def _call_build_review(state: ParentState) -> dict:
     When re-entering after an e2e failure, injects the e2e report as
     e2e_feedback so the coder sees intent-gap diagnostics on its first cycle.
     """
+    tracer = get_tracer()
+    if tracer is not None:
+        tracer.push_graph("build_review")
+
     is_e2e_reentry = state.get("e2e_verdict") == "REVISE"
     e2e_feedback = state.get("e2e_report", "") if is_e2e_reentry else ""
 
@@ -64,6 +69,7 @@ def _call_build_review(state: ParentState) -> dict:
     subgraph_input: BuildReviewState = {
         "task": state.get("task", ""),
         "current_plan": state["current_plan"],
+        "agent_architecture": state.get("agent_architecture", ""),
         "code_diff": "",
         "workspace_path": state.get("workspace_path", ""),
         "micro_feedback": "",
@@ -75,10 +81,15 @@ def _call_build_review(state: ParentState) -> dict:
         "resolved_issues": [],
         "persistent_rules": "",
     }
-    result = build_review_app.invoke(subgraph_input)
-    return {"current_code": result.get("code_diff", "")}
+    try:
+        result = build_review_app.invoke(subgraph_input)
+        return {"current_code": result.get("code_diff", "")}
+    finally:
+        if tracer is not None:
+            tracer.pop_graph()
 
 
+@traced_route("e2e_test", ["__end__", "build_review"])
 def _route_after_e2e(state: ParentState) -> str:
     """Route after e2e test: approve/skip → end, revise → build_review (up to max cycles)."""
     verdict = state.get("e2e_verdict", "")
@@ -89,6 +100,7 @@ def _route_after_e2e(state: ParentState) -> str:
     return "build_review"
 
 
+@traced_route("__start__", ["discover_architecture", "build_review"])
 def _route_entry(state: ParentState) -> str:
     """Skip plan review when caller has a pre-validated plan."""
     if state.get("skip_plan_review"):

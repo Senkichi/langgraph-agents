@@ -26,10 +26,15 @@ from langgraph_agents.state import (
     PromptBuildState,
     PromptWorkflowState,
 )
+from langgraph_agents.tracer import get_tracer
 
 
 def _call_plan_review(state: PromptWorkflowState) -> dict:
     """Wrapper: enriches task with architecture context, invokes plan_review."""
+    tracer = get_tracer()
+    if tracer is not None:
+        tracer.push_graph("plan_review")
+
     enriched_task = (
         f"{state.get('task', '')}\n\n"
         f"## Agent Architecture Context\n{state.get('agent_architecture', '')}"
@@ -42,12 +47,20 @@ def _call_plan_review(state: PromptWorkflowState) -> dict:
         "plan_verdict": "",
         "plan_cycle": 0,
     }
-    result = plan_review_app.invoke(subgraph_input)
-    return {"current_plan": result["current_plan"]}
+    try:
+        result = plan_review_app.invoke(subgraph_input)
+        return {"current_plan": result["current_plan"]}
+    finally:
+        if tracer is not None:
+            tracer.pop_graph()
 
 
 def _call_prompt_build_review(state: PromptWorkflowState) -> dict:
     """Wrapper: transforms parent state → prompt build-review subgraph."""
+    tracer = get_tracer()
+    if tracer is not None:
+        tracer.push_graph("prompt_build_review")
+
     subgraph_input: PromptBuildState = {
         "task": state.get("task", ""),
         "current_plan": state["current_plan"],
@@ -60,8 +73,12 @@ def _call_prompt_build_review(state: PromptWorkflowState) -> dict:
         "build_feedback": "",
         "build_cycle": 0,
     }
-    result = prompt_build_review_app.invoke(subgraph_input)
-    return {"prompt_diff": result.get("prompt_diff", "")}
+    try:
+        result = prompt_build_review_app.invoke(subgraph_input)
+        return {"prompt_diff": result.get("prompt_diff", "")}
+    finally:
+        if tracer is not None:
+            tracer.pop_graph()
 
 
 _SUBPROCESS_RETRY = RetryPolicy(

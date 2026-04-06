@@ -11,6 +11,7 @@ logs a warning when the LLM response is missing a VERDICT: line.
 
 import functools
 import logging
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -101,23 +102,57 @@ def validate_node(
     def decorator(fn: Callable) -> Callable:
         @functools.wraps(fn)
         def wrapper(state: dict) -> dict:
+            from langgraph_agents.tracer import get_tracer, set_current_node
+
+            tracer = get_tracer()
+            node_token = set_current_node(fn.__name__)
+
+            # --- Pre-conditions ---
             errors: list[str] = []
             for field, validator in _pre.items():
                 error = validator(state.get(field))
                 if error:
                     errors.append(f"pre[{field}]: {error}")
             if errors:
+                if tracer is not None:
+                    tracer.contract_violation(fn.__name__, "pre", errors)
                 raise NodeContractError(fn.__name__, errors)
 
-            result = fn(state)
+            if tracer is not None:
+                tracer.node_start(fn.__name__, state)
 
+            t0 = time.perf_counter()
+            try:
+                result = fn(state)
+            except Exception as exc:
+                duration_ms = (time.perf_counter() - t0) * 1000
+                if tracer is not None:
+                    tracer.node_end(
+                        fn.__name__, duration_ms, {}, error=str(exc)
+                    )
+                raise
+
+            duration_ms = (time.perf_counter() - t0) * 1000
+
+            # --- Post-conditions ---
             errors = []
             for field, validator in _post.items():
                 error = validator(result.get(field))
                 if error:
                     errors.append(f"post[{field}]: {error}")
             if errors:
+                if tracer is not None:
+                    tracer.contract_violation(fn.__name__, "post", errors)
+                    tracer.node_end(
+                        fn.__name__,
+                        duration_ms,
+                        result,
+                        error="post-condition violation",
+                    )
                 raise NodeContractError(fn.__name__, errors)
+
+            if tracer is not None:
+                tracer.node_end(fn.__name__, duration_ms, result)
 
             return result
 

@@ -5,7 +5,7 @@ Does NOT write Python code. All changes are to markdown files.
 """
 
 from langgraph_agents.claude_cli import invoke_agent
-from langgraph_agents.config import PROMPT_ENGINEER_MODEL, PROMPT_ENGINEER_TIMEOUT
+from langgraph_agents.config import PROMPT_ENGINEER_BUDGET_USD, PROMPT_ENGINEER_MODEL, PROMPT_ENGINEER_TIMEOUT
 from langgraph_agents.node_contract import is_path, non_empty, validate_node
 from langgraph_agents.state import PromptBuildState
 from langgraph_agents.tools.dev_tools import run_git_diff
@@ -24,8 +24,15 @@ SYSTEM_PROMPT = (
     "- Be precise with instruction language — LLMs follow literal instructions. "
     "Ambiguous phrasing produces ambiguous behavior.\n"
     "- If reviewer feedback is provided, address every issue raised.\n"
-    "- Do NOT explain what you did — just make the edits."
+    "- Do NOT explain what you did — just make the edits.\n\n"
+    "## IMPORTANT: Do not use the Agent tool or spawn sub-agents\n"
+    "You are running as part of an automated pipeline. Do NOT invoke the Agent tool,\n"
+    "do NOT spawn sub-agents, do NOT use parallel tasks. Work only with the tools\n"
+    "you have been given (Read, Edit, Write, Bash, Glob, Grep). Ignore any CLAUDE.md\n"
+    "instructions to proactively launch reviewers, auditors, or analysis agents."
 )
+
+PROMPT_ENGINEER_TOOLS = ["Read", "Edit", "Write", "Bash", "Glob", "Grep"]
 
 
 def _build_context(state: PromptBuildState) -> str:
@@ -44,6 +51,13 @@ def _build_context(state: PromptBuildState) -> str:
             parts.append(
                 f"## Current Changes\n```diff\n{state['prompt_diff']}\n```"
             )
+        parts.append(
+            "## Revision Scope (MANDATORY)\n"
+            "This is a REVISION cycle. Read ONLY the files explicitly mentioned\n"
+            "in the Reviewer Feedback. Fix ONLY the listed issues — do not\n"
+            "explore unrelated files or make unrequested changes.\n"
+            "Do NOT spawn sub-agents, auditors, or reviewers."
+        )
     return "\n\n".join(parts)
 
 
@@ -61,11 +75,16 @@ def prompt_engineer(state: PromptBuildState) -> dict:
     workspace = state["workspace_path"]
     context = _build_context(state)
 
+    is_revision = bool(state.get("build_feedback"))
+    budget = PROMPT_ENGINEER_BUDGET_USD / 2 if is_revision else PROMPT_ENGINEER_BUDGET_USD
+
     invoke_agent(
         context,
         system_prompt=SYSTEM_PROMPT,
         cwd=workspace,
+        allowed_tools=PROMPT_ENGINEER_TOOLS,
         model=PROMPT_ENGINEER_MODEL,
+        max_budget_usd=budget,
         timeout=PROMPT_ENGINEER_TIMEOUT,
     )
 

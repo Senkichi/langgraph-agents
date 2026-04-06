@@ -14,6 +14,7 @@ from langgraph_agents.nodes.behavioral_reviewer import behavioral_review
 from langgraph_agents.nodes.prompt_engineer import prompt_engineer
 from langgraph_agents.nodes.prompt_review_synthesizer import synthesize_prompt_reviews
 from langgraph_agents.state import PromptBuildState
+from langgraph_agents.tracer import traced_route
 
 MAX_BUILD_CYCLES = 4
 
@@ -24,6 +25,7 @@ _SUBPROCESS_RETRY = RetryPolicy(
 )
 
 
+@traced_route("prompt_engineer", ["behavioral_reviewer", "architectural_reviewer"])
 def _fan_out_to_reviewers(state: PromptBuildState) -> list[Send]:
     """Fan out to both reviewers in parallel."""
     return [
@@ -32,6 +34,7 @@ def _fan_out_to_reviewers(state: PromptBuildState) -> list[Send]:
     ]
 
 
+@traced_route("synthesizer", ["__end__", "prompt_engineer"])
 def _route_after_synthesis(state: PromptBuildState) -> str:
     """Route after synthesis: approve → end, revise → prompt_engineer (up to max cycles)."""
     if state.get("build_verdict") == "APPROVE":

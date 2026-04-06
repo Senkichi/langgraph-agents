@@ -16,11 +16,11 @@ def run_git_diff(workspace_path: str) -> str:
         result = subprocess.run(
             ["git"] + list(args),
             cwd=workspace_path,
-            capture_output=True,
-            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             timeout=30,
         )
-        return result.stdout.strip()
+        return (result.stdout or b"").decode("utf-8", errors="replace").strip()
 
     try:
         diff = _run("diff", "HEAD")

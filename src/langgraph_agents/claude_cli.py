@@ -7,6 +7,7 @@ instead of the Anthropic API.
 import json
 import subprocess
 import sys
+import time
 
 
 def invoke(
@@ -69,38 +70,93 @@ def invoke(
     if sys.platform == "win32":
         kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
 
-    result = subprocess.run(
-        cmd,
-        cwd=cwd,
-        input=prompt,
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        encoding="utf-8",
-        **kwargs,
-    )
+    # --- Tracing: LLM call start ---
+    from langgraph_agents.tracer import get_current_node, get_tracer
+
+    tracer = get_tracer()
+    current_node = get_current_node()
+    if tracer is not None:
+        tracer.llm_call_start(current_node, model or "default", prompt)
+
+    t0 = time.perf_counter()
+    try:
+        result = subprocess.run(
+            cmd,
+            cwd=cwd,
+            input=prompt,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            encoding="utf-8",
+            **kwargs,
+        )
+    except Exception as exc:
+        duration_ms = (time.perf_counter() - t0) * 1000
+        if tracer is not None:
+            tracer.llm_call_end(
+                current_node, model or "default", duration_ms, "", error=str(exc)
+            )
+        raise
+
+    duration_ms = (time.perf_counter() - t0) * 1000
 
     if result.returncode != 0:
-        raise RuntimeError(
+        error_msg = (
             f"claude CLI failed (exit {result.returncode}):\n"
             f"STDERR: {result.stderr}\n"
             f"STDOUT: {result.stdout}"
         )
+        if tracer is not None:
+            tracer.llm_call_end(
+                current_node,
+                model or "default",
+                duration_ms,
+                result.stdout,
+                error=error_msg,
+            )
+        raise RuntimeError(error_msg)
 
     if output_format == "json":
         try:
             data = json.loads(result.stdout)
         except json.JSONDecodeError:
+            if tracer is not None:
+                tracer.llm_call_end(
+                    current_node,
+                    model or "default",
+                    duration_ms,
+                    result.stdout,
+                    error="JSON parse failure",
+                )
             raise RuntimeError(
                 f"Failed to parse claude CLI JSON output:\n{result.stdout}"
             )
 
         if data.get("is_error"):
-            raise RuntimeError(f"claude CLI returned error: {data.get('result', '')}")
+            error_msg = f"claude CLI returned error: {data.get('result', '')}"
+            if tracer is not None:
+                tracer.llm_call_end(
+                    current_node,
+                    model or "default",
+                    duration_ms,
+                    data.get("result", ""),
+                    error=error_msg,
+                )
+            raise RuntimeError(error_msg)
 
-        return data.get("result", "")
+        response_text = data.get("result", "")
+        if tracer is not None:
+            tracer.llm_call_end(
+                current_node, model or "default", duration_ms, response_text
+            )
+        return response_text
 
-    return result.stdout.strip()
+    response_text = result.stdout.strip()
+    if tracer is not None:
+        tracer.llm_call_end(
+            current_node, model or "default", duration_ms, response_text
+        )
+    return response_text
 
 
 def invoke_structured(

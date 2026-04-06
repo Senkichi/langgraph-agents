@@ -65,12 +65,23 @@ def _truncate_plan_for_reviewer(plan: str) -> str:
 def macro_review(state: BuildReviewState) -> dict:
     """Macro-level architecture review using claude CLI."""
     workspace = state["workspace_path"]
-    content = (
-        f"## Approved Plan\n{_truncate_plan_for_reviewer(state['current_plan'])}\n\n"
-        f"## Code Diff to Review\n```diff\n{state.get('code_diff', '')}\n```\n\n"
-        "Review the architecture and design. Read the full files to understand "
-        "the structure. Then provide your final verdict."
+
+    parts = [
+        f"## Approved Plan\n{_truncate_plan_for_reviewer(state['current_plan'])}",
+        f"## Code Diff to Review\n```diff\n{state.get('code_diff', '')}\n```",
+    ]
+    if state.get("agent_architecture"):
+        parts.append(
+            "## Workspace Architecture (pre-discovered)\n"
+            "Use this to orient your structural review. Read only the specific files\n"
+            "referenced in the diff — do not re-scan the full workspace.\n\n"
+            + state["agent_architecture"]
+        )
+    parts.append(
+        "Review the architecture and design. Read only the files referenced in the "
+        "diff above to understand the structure. Then provide your final verdict."
     )
+    content = "\n\n".join(parts)
 
     response = invoke_agent(
         content,

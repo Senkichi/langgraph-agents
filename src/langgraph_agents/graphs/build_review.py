@@ -16,6 +16,7 @@ from langgraph_agents.nodes.macro_reviewer import macro_review
 from langgraph_agents.nodes.micro_reviewer import micro_review
 from langgraph_agents.nodes.review_synthesizer import synthesize_reviews
 from langgraph_agents.state import BuildReviewState
+from langgraph_agents.tracer import traced_route
 
 MAX_BUILD_CYCLES = 4
 
@@ -26,6 +27,7 @@ _SUBPROCESS_RETRY = RetryPolicy(
 )
 
 
+@traced_route("coder", ["micro_reviewer", "macro_reviewer"])
 def _fan_out_to_reviewers(state: BuildReviewState) -> list[Send]:
     """Fan out to both reviewers in parallel."""
     return [
@@ -34,6 +36,7 @@ def _fan_out_to_reviewers(state: BuildReviewState) -> list[Send]:
     ]
 
 
+@traced_route("synthesizer", ["__end__", "coder"])
 def _route_after_synthesis(state: BuildReviewState) -> str:
     """Route after synthesis: approve → end, revise → coder (up to max cycles)."""
     if state.get("build_verdict") == "APPROVE":

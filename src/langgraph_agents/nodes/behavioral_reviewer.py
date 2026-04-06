@@ -5,7 +5,7 @@ from the LLM agents.
 """
 
 from langgraph_agents.claude_cli import invoke_agent
-from langgraph_agents.config import REVIEWER_MODEL, REVIEWER_TIMEOUT
+from langgraph_agents.config import REVIEWER_BUDGET_USD, REVIEWER_MODEL, REVIEWER_TIMEOUT
 from langgraph_agents.node_contract import (
     contains_verdict,
     format_verdict_feedback,
@@ -76,6 +76,7 @@ def behavioral_review(state: PromptBuildState) -> dict:
         cwd=workspace,
         allowed_tools=REVIEW_TOOLS,
         model=REVIEWER_MODEL,
+        max_budget_usd=REVIEWER_BUDGET_USD,
         timeout=REVIEWER_TIMEOUT,
     )
     return {"behavioral_feedback": format_verdict_feedback(response)}

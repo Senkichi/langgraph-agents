@@ -31,6 +31,7 @@ class BuildReviewState(TypedDict):
 
     task: str
     current_plan: str  # Read-only approved plan
+    agent_architecture: str  # Pre-discovered workspace summary (shared key with ParentState)
     code_diff: str  # git diff captured after each coder run
     workspace_path: str  # Working directory for file ops
     micro_feedback: str  # Replaced each cycle

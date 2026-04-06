@@ -6,9 +6,10 @@ agents + roles, knowledge file consumers, dependency graph, isolation
 boundaries, and shared sync points.
 """
 
-from langgraph_agents.claude_cli import invoke_agent
-from langgraph_agents.config import DISCOVER_MODEL
 from typing import Any
+
+from langgraph_agents.claude_cli import invoke_agent
+from langgraph_agents.config import DISCOVER_BUDGET_USD, DISCOVER_MODEL
 
 from langgraph_agents.node_contract import is_path, non_empty, validate_node
 
@@ -53,5 +54,6 @@ def discover_architecture(state: Any) -> dict:
         cwd=workspace,
         allowed_tools=DISCOVERY_TOOLS,
         model=DISCOVER_MODEL,
+        max_budget_usd=DISCOVER_BUDGET_USD,
     )
     return {"agent_architecture": response}

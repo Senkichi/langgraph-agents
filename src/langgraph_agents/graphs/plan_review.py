@@ -13,6 +13,7 @@ from langgraph.types import RetryPolicy
 from langgraph_agents.nodes.plan_reviewer import review_plan
 from langgraph_agents.nodes.planner import plan
 from langgraph_agents.state import PlanReviewState
+from langgraph_agents.tracer import traced_route
 
 MAX_PLAN_CYCLES = 2
 
@@ -23,6 +24,7 @@ _SUBPROCESS_RETRY = RetryPolicy(
 )
 
 
+@traced_route("__start__", ["planner", "plan_reviewer"])
 def _route_entry(state: PlanReviewState) -> str:
     """Route on entry: skip planner if a plan was already provided."""
     if state.get("current_plan"):
@@ -30,6 +32,7 @@ def _route_entry(state: PlanReviewState) -> str:
     return "planner"
 
 
+@traced_route("plan_reviewer", ["__end__", "planner"])
 def _route_after_review(state: PlanReviewState) -> str:
     """Route after review: approve → end, revise → planner (up to max cycles)."""
     if state.get("plan_verdict") == "APPROVE":
