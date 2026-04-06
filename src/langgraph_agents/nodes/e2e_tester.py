@@ -9,6 +9,7 @@ support execution).
 import re
 
 from langgraph_agents.claude_cli import invoke_agent
+from langgraph_agents.config import E2E_BUDGET_USD, E2E_MODEL, E2E_TIMEOUT
 from langgraph_agents.node_contract import (
     format_verdict_feedback,
     is_path,
@@ -139,9 +140,9 @@ def e2e_test(state: ParentState) -> dict:
         system_prompt=SYSTEM_PROMPT,
         cwd=workspace,
         allowed_tools=E2E_TOOLS,
-        model="sonnet",
-        max_budget_usd=2.0,
-        timeout=2700,
+        model=E2E_MODEL,
+        max_budget_usd=E2E_BUDGET_USD,
+        timeout=E2E_TIMEOUT,
     )
 
     response = format_verdict_feedback(response)

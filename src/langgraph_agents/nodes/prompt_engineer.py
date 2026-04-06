@@ -5,6 +5,7 @@ Does NOT write Python code. All changes are to markdown files.
 """
 
 from langgraph_agents.claude_cli import invoke_agent
+from langgraph_agents.config import PROMPT_ENGINEER_MODEL, PROMPT_ENGINEER_TIMEOUT
 from langgraph_agents.node_contract import is_path, non_empty, validate_node
 from langgraph_agents.state import PromptBuildState
 from langgraph_agents.tools.dev_tools import run_git_diff
@@ -64,6 +65,8 @@ def prompt_engineer(state: PromptBuildState) -> dict:
         context,
         system_prompt=SYSTEM_PROMPT,
         cwd=workspace,
+        model=PROMPT_ENGINEER_MODEL,
+        timeout=PROMPT_ENGINEER_TIMEOUT,
     )
 
     diff = run_git_diff(workspace)

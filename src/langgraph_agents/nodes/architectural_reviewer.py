@@ -5,6 +5,7 @@ isolation boundaries, and dependency graph.
 """
 
 from langgraph_agents.claude_cli import invoke_agent
+from langgraph_agents.config import REVIEWER_MODEL, REVIEWER_TIMEOUT
 from langgraph_agents.node_contract import (
     contains_verdict,
     format_verdict_feedback,
@@ -66,5 +67,7 @@ def architectural_review(state: PromptBuildState) -> dict:
         system_prompt=SYSTEM_PROMPT,
         cwd=workspace,
         allowed_tools=REVIEW_TOOLS,
+        model=REVIEWER_MODEL,
+        timeout=REVIEWER_TIMEOUT,
     )
     return {"architectural_feedback": format_verdict_feedback(response)}

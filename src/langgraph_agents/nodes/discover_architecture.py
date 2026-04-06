@@ -7,6 +7,7 @@ boundaries, and shared sync points.
 """
 
 from langgraph_agents.claude_cli import invoke_agent
+from langgraph_agents.config import DISCOVER_MODEL
 from langgraph_agents.node_contract import is_path, non_empty, validate_node
 from langgraph_agents.state import PromptWorkflowState
 
@@ -50,5 +51,6 @@ def discover_architecture(state: PromptWorkflowState) -> dict:
         system_prompt=SYSTEM_PROMPT,
         cwd=workspace,
         allowed_tools=DISCOVERY_TOOLS,
+        model=DISCOVER_MODEL,
     )
     return {"agent_architecture": response}

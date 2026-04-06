@@ -254,10 +254,12 @@ class TestE2eTestNode:
         mock_invoke.assert_called_once()
         call_kwargs = mock_invoke.call_args
         assert call_kwargs.kwargs["cwd"] == str(tmp_path)
-        assert call_kwargs.kwargs["model"] == "sonnet"
+        from langgraph_agents.config import E2E_BUDGET_USD, E2E_MODEL, E2E_TIMEOUT
+
+        assert call_kwargs.kwargs["model"] == E2E_MODEL
         assert call_kwargs.kwargs["allowed_tools"] == ["Read", "Glob", "Grep", "Bash"]
-        assert call_kwargs.kwargs["max_budget_usd"] == 2.0
-        assert call_kwargs.kwargs["timeout"] == 2700
+        assert call_kwargs.kwargs["max_budget_usd"] == E2E_BUDGET_USD
+        assert call_kwargs.kwargs["timeout"] == E2E_TIMEOUT
         # Verify behavioral output: full pipeline (invoke → format → parse) ran correctly
         assert result["e2e_verdict"] == "APPROVE", (
             "invoke_agent was called correctly but verdict was not parsed/returned properly"

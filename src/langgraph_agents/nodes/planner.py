@@ -1,4 +1,5 @@
 from langgraph_agents.claude_cli import invoke
+from langgraph_agents.config import PLANNER_MODEL
 from langgraph_agents.node_contract import non_empty, validate_node
 from langgraph_agents.state import PlanReviewState
 
@@ -29,7 +30,7 @@ def plan(state: PlanReviewState) -> dict:
     response = invoke(
         "\n\n".join(parts),
         system_prompt=SYSTEM_PROMPT,
-        model="opus",
+        model=PLANNER_MODEL,
     )
     return {
         "current_plan": response,

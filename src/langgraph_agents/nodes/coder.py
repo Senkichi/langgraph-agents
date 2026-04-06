@@ -5,6 +5,7 @@ After the agent finishes, captures `git diff` into state.
 """
 
 from langgraph_agents.claude_cli import invoke_agent
+from langgraph_agents.config import CODER_BUDGET_USD, CODER_MODEL, CODER_TIMEOUT
 from langgraph_agents.node_contract import is_path, non_empty, validate_node
 from langgraph_agents.state import BuildReviewState
 from langgraph_agents.tools.dev_tools import run_git_diff
@@ -54,8 +55,9 @@ def code(state: BuildReviewState) -> dict:
         context,
         system_prompt=CODER_SYSTEM_PROMPT,
         cwd=workspace,
-        model="sonnet",
-        timeout=7200,
+        model=CODER_MODEL,
+        max_budget_usd=CODER_BUDGET_USD,
+        timeout=CODER_TIMEOUT,
     )
 
     diff = run_git_diff(workspace)

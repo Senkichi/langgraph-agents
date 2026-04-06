@@ -1,4 +1,5 @@
 from langgraph_agents.claude_cli import invoke_structured
+from langgraph_agents.config import REVIEWER_MODEL
 from langgraph_agents.models import PlanVerdict
 from langgraph_agents.node_contract import is_verdict_value, non_empty, validate_node
 from langgraph_agents.state import PlanReviewState
@@ -41,7 +42,7 @@ def review_plan(state: PlanReviewState) -> dict:
             content,
             schema=PLAN_VERDICT_SCHEMA,
             system_prompt=SYSTEM_PROMPT,
-            model="sonnet",
+            model=REVIEWER_MODEL,
         )
         verdict = PlanVerdict.model_validate(raw)
     except Exception:
