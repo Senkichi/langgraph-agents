@@ -44,7 +44,7 @@ def build_build_review_graph() -> StateGraph:
     graph.add_node("coder", code)
     graph.add_node("micro_reviewer", micro_review)
     graph.add_node("macro_reviewer", macro_review)
-    graph.add_node("synthesizer", synthesize_reviews)
+    graph.add_node("synthesizer", synthesize_reviews, defer=True)
 
     graph.add_edge(START, "coder")
     graph.add_conditional_edges(

@@ -65,5 +65,6 @@ def macro_review(state: BuildReviewState) -> dict:
         cwd=workspace,
         allowed_tools=REVIEW_TOOLS,
         model="sonnet",
+        timeout=3600,
     )
     return {"macro_feedback": format_verdict_feedback(response)}

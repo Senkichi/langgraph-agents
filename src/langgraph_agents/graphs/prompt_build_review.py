@@ -42,7 +42,7 @@ def build_prompt_build_review_graph() -> StateGraph:
     graph.add_node("prompt_engineer", prompt_engineer)
     graph.add_node("behavioral_reviewer", behavioral_review)
     graph.add_node("architectural_reviewer", architectural_review)
-    graph.add_node("synthesizer", synthesize_prompt_reviews)
+    graph.add_node("synthesizer", synthesize_prompt_reviews, defer=True)
 
     graph.add_edge(START, "prompt_engineer")
     graph.add_conditional_edges(

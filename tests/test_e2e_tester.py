@@ -1,35 +1,37 @@
 from unittest.mock import patch
 
+from langgraph_agents.node_contract import parse_verdict
 from langgraph_agents.nodes.e2e_tester import (
     _build_e2e_context,
     _extract_changed_files,
-    _parse_verdict,
     _suggest_test_commands,
     e2e_test,
 )
 
 
-class TestParseVerdict:
+class TestParseVerdictE2E:
+    """Tests for parse_verdict in the e2e context (APPROVE/REVISE/SKIP)."""
+
     def test_approve(self):
-        assert _parse_verdict("stuff\nVERDICT:APPROVE\nmore") == "APPROVE"
+        assert parse_verdict("stuff\nVERDICT:APPROVE\nmore", "APPROVE", "REVISE", "SKIP") == "APPROVE"
 
     def test_revise(self):
-        assert _parse_verdict("stuff\nVERDICT:REVISE\nmore") == "REVISE"
+        assert parse_verdict("stuff\nVERDICT:REVISE\nmore", "APPROVE", "REVISE", "SKIP") == "REVISE"
 
     def test_skip(self):
-        assert _parse_verdict("stuff\nVERDICT:SKIP\nmore") == "SKIP"
+        assert parse_verdict("stuff\nVERDICT:SKIP\nmore", "APPROVE", "REVISE", "SKIP") == "SKIP"
 
     def test_missing_defaults_to_revise(self):
-        assert _parse_verdict("no verdict here") == "REVISE"
+        assert parse_verdict("no verdict here", "APPROVE", "REVISE", "SKIP") == "REVISE"
 
     def test_case_insensitive_value(self):
-        assert _parse_verdict("VERDICT:approve") == "APPROVE"
+        assert parse_verdict("VERDICT:approve", "APPROVE", "REVISE", "SKIP") == "APPROVE"
 
     def test_whitespace_in_value(self):
-        assert _parse_verdict("VERDICT: APPROVE ") == "APPROVE"
+        assert parse_verdict("VERDICT: APPROVE ", "APPROVE", "REVISE", "SKIP") == "APPROVE"
 
     def test_unknown_verdict_defaults_to_revise(self):
-        assert _parse_verdict("VERDICT:MAYBE") == "REVISE"
+        assert parse_verdict("VERDICT:MAYBE", "APPROVE", "REVISE", "SKIP") == "REVISE"
 
 
 class TestExtractChangedFiles:
@@ -247,7 +249,8 @@ class TestE2eTestNode:
     def test_invokes_with_correct_params(self, mock_invoke, tmp_path):
         mock_invoke.return_value = "VERDICT:APPROVE\nREASONING:OK."
         state = self._make_state(tmp_path)
-        e2e_test(state)
+        result = e2e_test(state)
+        # Verify invocation parameters (interface contract with invoke_agent)
         mock_invoke.assert_called_once()
         call_kwargs = mock_invoke.call_args
         assert call_kwargs.kwargs["cwd"] == str(tmp_path)
@@ -255,3 +258,8 @@ class TestE2eTestNode:
         assert call_kwargs.kwargs["allowed_tools"] == ["Read", "Glob", "Grep", "Bash"]
         assert call_kwargs.kwargs["max_budget_usd"] == 2.0
         assert call_kwargs.kwargs["timeout"] == 2700
+        # Verify behavioral output: full pipeline (invoke → format → parse) ran correctly
+        assert result["e2e_verdict"] == "APPROVE", (
+            "invoke_agent was called correctly but verdict was not parsed/returned properly"
+        )
+        assert result["e2e_cycle"] == 1

@@ -131,6 +131,34 @@ def validate_node(
 # ---------------------------------------------------------------------------
 
 
+def parse_verdict(text: str, *allowed: str) -> str:
+    """Extract VERDICT: value from text, normalizing whitespace and case.
+
+    Returns the first matching VERDICT: line value, uppercased and stripped.
+    Falls back to "REVISE" if no VERDICT: line found (safe default — never silently approves).
+    """
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.upper().startswith("VERDICT:"):
+            value = stripped.split(":", 1)[1].strip().upper()
+            if not allowed or value in allowed:
+                return value
+    return "REVISE"
+
+
+def extract_verdict_block(feedback: str) -> str:
+    """Extract the structured verdict block starting at the VERDICT: line.
+
+    Strips the agent's tool-use exploration traces that precede the verdict.
+    Returns everything from the first VERDICT: line onward.
+    """
+    lines = feedback.splitlines()
+    for i, line in enumerate(lines):
+        if line.strip().upper().startswith("VERDICT:"):
+            return "\n".join(lines[i:]).strip()
+    return feedback.strip()
+
+
 def format_verdict_feedback(verdict_text: str) -> str:
     """Ensure feedback contains a parseable ``VERDICT:`` line.
 

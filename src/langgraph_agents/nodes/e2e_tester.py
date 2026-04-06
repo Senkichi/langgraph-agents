@@ -14,6 +14,7 @@ from langgraph_agents.node_contract import (
     is_path,
     is_verdict_value,
     non_empty,
+    parse_verdict,
     validate_node,
 )
 from langgraph_agents.state import ParentState
@@ -59,16 +60,6 @@ SYSTEM_PROMPT = (
 )
 
 E2E_TOOLS = ["Read", "Glob", "Grep", "Bash"]
-
-
-def _parse_verdict(response: str) -> str:
-    """Extract the verdict from the response text."""
-    for line in response.splitlines():
-        if line.startswith("VERDICT:"):
-            verdict = line.split(":", 1)[1].strip().upper()
-            if verdict in ("APPROVE", "REVISE", "SKIP"):
-                return verdict
-    return "REVISE"
 
 
 def _extract_changed_files(diff: str) -> list[str]:
@@ -154,7 +145,7 @@ def e2e_test(state: ParentState) -> dict:
     )
 
     response = format_verdict_feedback(response)
-    verdict = _parse_verdict(response)
+    verdict = parse_verdict(response, "APPROVE", "REVISE", "SKIP")
 
     return {
         "e2e_verdict": verdict,

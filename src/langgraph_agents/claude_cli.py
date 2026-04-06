@@ -131,7 +131,7 @@ def invoke_structured(
         system_prompt=system_prompt,
         cwd=cwd,
         model=model,
-        allowed_tools=[""],  # disable all tools for pure reasoning
+        allowed_tools=None,  # omit --allowed-tools; --json-schema suppresses tool calls
         max_budget_usd=max_budget_usd,
         json_schema=schema,
     )

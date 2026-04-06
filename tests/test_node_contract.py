@@ -8,11 +8,13 @@ import pytest
 from langgraph_agents.node_contract import (
     NodeContractError,
     contains_verdict,
+    extract_verdict_block,
     format_verdict_feedback,
     is_non_negative_int,
     is_path,
     is_verdict_value,
     non_empty,
+    parse_verdict,
     validate_node,
 )
 
@@ -113,6 +115,40 @@ class TestIsNonNegativeInt:
 
     def test_none(self):
         assert is_non_negative_int(None) is not None
+
+
+# ---------------------------------------------------------------------------
+# parse_verdict + extract_verdict_block
+# ---------------------------------------------------------------------------
+
+
+class TestParseVerdict:
+    def test_exact_match(self):
+        assert parse_verdict("VERDICT:REVISE\nREASONING:Bug.", "APPROVE", "REVISE") == "REVISE"
+
+    def test_space_after_colon(self):
+        assert parse_verdict("VERDICT: REVISE\nREASONING:Bug.", "APPROVE", "REVISE") == "REVISE"
+
+    def test_lowercase_input(self):
+        assert parse_verdict("verdict: approve\nreasoning:ok", "APPROVE", "REVISE") == "APPROVE"
+
+    def test_fallback_on_no_match(self):
+        assert parse_verdict("No verdict here", "APPROVE", "REVISE") == "REVISE"
+
+    def test_unallowed_value_falls_through(self):
+        assert parse_verdict("VERDICT:UNKNOWN\nVERDICT:APPROVE", "APPROVE", "REVISE") == "APPROVE"
+
+
+class TestExtractVerdictBlock:
+    def test_strips_tool_traces(self):
+        text = "Tool use: read file\nOutput: ...\nVERDICT:REVISE\nREASONING:Bug found."
+        result = extract_verdict_block(text)
+        assert result.startswith("VERDICT:REVISE")
+        assert "Tool use" not in result
+
+    def test_no_verdict_returns_full_text(self):
+        text = "No verdict here"
+        assert extract_verdict_block(text) == "No verdict here"
 
 
 # ---------------------------------------------------------------------------
