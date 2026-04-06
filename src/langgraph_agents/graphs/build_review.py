@@ -9,7 +9,7 @@ agents use the claude CLI (which takes cwd as a parameter).
 """
 
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import Send
+from langgraph.types import RetryPolicy, Send
 
 from langgraph_agents.nodes.coder import code
 from langgraph_agents.nodes.macro_reviewer import macro_review
@@ -18,6 +18,12 @@ from langgraph_agents.nodes.review_synthesizer import synthesize_reviews
 from langgraph_agents.state import BuildReviewState
 
 MAX_BUILD_CYCLES = 4
+
+_SUBPROCESS_RETRY = RetryPolicy(
+    max_attempts=3,
+    initial_interval=2.0,
+    retry_on=RuntimeError,
+)
 
 
 def _fan_out_to_reviewers(state: BuildReviewState) -> list[Send]:
@@ -41,9 +47,9 @@ def build_build_review_graph() -> StateGraph:
     """Build the build-review subgraph."""
     graph = StateGraph(BuildReviewState)
 
-    graph.add_node("coder", code)
-    graph.add_node("micro_reviewer", micro_review)
-    graph.add_node("macro_reviewer", macro_review)
+    graph.add_node("coder", code, retry_policy=_SUBPROCESS_RETRY)
+    graph.add_node("micro_reviewer", micro_review, retry_policy=_SUBPROCESS_RETRY)
+    graph.add_node("macro_reviewer", macro_review, retry_policy=_SUBPROCESS_RETRY)
     graph.add_node("synthesizer", synthesize_reviews, defer=True)
 
     graph.add_edge(START, "coder")
@@ -63,4 +69,12 @@ def build_build_review_graph() -> StateGraph:
     return graph
 
 
-build_review_app = build_build_review_graph().compile()
+def compile_build_review(checkpointer=None):
+    """Compile the build-review graph with an optional checkpointer."""
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    cp = checkpointer if checkpointer is not None else InMemorySaver()
+    return build_build_review_graph().compile(checkpointer=cp)
+
+
+build_review_app = compile_build_review()

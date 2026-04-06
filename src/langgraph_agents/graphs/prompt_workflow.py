@@ -16,6 +16,7 @@ Usage:
 """
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import RetryPolicy
 
 from langgraph_agents.graphs.plan_review import plan_review_app
 from langgraph_agents.graphs.prompt_build_review import prompt_build_review_app
@@ -62,11 +63,18 @@ def _call_prompt_build_review(state: PromptWorkflowState) -> dict:
     return {"prompt_diff": result.get("prompt_diff", "")}
 
 
+_SUBPROCESS_RETRY = RetryPolicy(
+    max_attempts=3,
+    initial_interval=2.0,
+    retry_on=RuntimeError,
+)
+
+
 def build_prompt_workflow_graph() -> StateGraph:
     """Build the parent prompt workflow graph."""
     graph = StateGraph(PromptWorkflowState)
 
-    graph.add_node("discover_architecture", discover_architecture)
+    graph.add_node("discover_architecture", discover_architecture, retry_policy=_SUBPROCESS_RETRY)
     graph.add_node("plan_review", _call_plan_review)
     graph.add_node("prompt_build_review", _call_prompt_build_review)
 
@@ -78,4 +86,12 @@ def build_prompt_workflow_graph() -> StateGraph:
     return graph
 
 
-prompt_workflow_app = build_prompt_workflow_graph().compile()
+def compile_prompt_workflow(checkpointer=None):
+    """Compile the prompt workflow graph with an optional checkpointer."""
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    cp = checkpointer if checkpointer is not None else InMemorySaver()
+    return build_prompt_workflow_graph().compile(checkpointer=cp)
+
+
+prompt_workflow_app = compile_prompt_workflow()

@@ -27,6 +27,7 @@ Usage:
 """
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import RetryPolicy
 
 from langgraph_agents.graphs.build_review import MAX_BUILD_CYCLES, build_review_app
 from langgraph_agents.graphs.plan_review import plan_review_app
@@ -38,6 +39,12 @@ from langgraph_agents.state import (
 )
 
 MAX_E2E_CYCLES = 2
+
+_SUBPROCESS_RETRY = RetryPolicy(
+    max_attempts=3,
+    initial_interval=2.0,
+    retry_on=RuntimeError,
+)
 
 
 def _call_plan_review(state: ParentState) -> dict:
@@ -101,7 +108,7 @@ def build_plan_build_review_graph() -> StateGraph:
 
     graph.add_node("plan_review", _call_plan_review)
     graph.add_node("build_review", _call_build_review)
-    graph.add_node("e2e_test", e2e_test)
+    graph.add_node("e2e_test", e2e_test, retry_policy=_SUBPROCESS_RETRY)
 
     graph.add_edge(START, "plan_review")
     graph.add_edge("plan_review", "build_review")
@@ -115,4 +122,12 @@ def build_plan_build_review_graph() -> StateGraph:
     return graph
 
 
-plan_build_review_app = build_plan_build_review_graph().compile()
+def compile_plan_build_review(checkpointer=None):
+    """Compile the parent graph with an optional checkpointer."""
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    cp = checkpointer if checkpointer is not None else InMemorySaver()
+    return build_plan_build_review_graph().compile(checkpointer=cp)
+
+
+plan_build_review_app = compile_plan_build_review()

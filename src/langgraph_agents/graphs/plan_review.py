@@ -4,16 +4,23 @@ Supports dual input:
 - If current_plan is populated → goes straight to reviewer
 - If current_plan is empty → planner drafts first
 
-Cycles up to 4 times or until the reviewer approves.
+Cycles up to 2 times or until the reviewer approves.
 """
 
 from langgraph.graph import END, START, StateGraph
+from langgraph.types import RetryPolicy
 
 from langgraph_agents.nodes.plan_reviewer import review_plan
 from langgraph_agents.nodes.planner import plan
 from langgraph_agents.state import PlanReviewState
 
-MAX_PLAN_CYCLES = 4
+MAX_PLAN_CYCLES = 2
+
+_SUBPROCESS_RETRY = RetryPolicy(
+    max_attempts=3,
+    initial_interval=2.0,
+    retry_on=RuntimeError,
+)
 
 
 def _route_entry(state: PlanReviewState) -> str:
@@ -35,8 +42,8 @@ def _route_after_review(state: PlanReviewState) -> str:
 def build_plan_review_graph() -> StateGraph:
     graph = StateGraph(PlanReviewState)
 
-    graph.add_node("planner", plan)
-    graph.add_node("plan_reviewer", review_plan)
+    graph.add_node("planner", plan, retry_policy=_SUBPROCESS_RETRY)
+    graph.add_node("plan_reviewer", review_plan, retry_policy=_SUBPROCESS_RETRY)
 
     graph.add_conditional_edges(
         START,
@@ -53,4 +60,12 @@ def build_plan_review_graph() -> StateGraph:
     return graph
 
 
-plan_review_app = build_plan_review_graph().compile()
+def compile_plan_review(checkpointer=None):
+    """Compile the plan-review graph with an optional checkpointer."""
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    cp = checkpointer if checkpointer is not None else InMemorySaver()
+    return build_plan_review_graph().compile(checkpointer=cp)
+
+
+plan_review_app = compile_plan_review()

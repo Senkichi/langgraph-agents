@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 from langgraph.graph import END
 
 from langgraph_agents.graphs.plan_build_review import (
@@ -70,37 +72,97 @@ class TestE2eRouting:
         assert _route_after_e2e(state) == "build_review"
 
 
+class TestCheckpointing:
+    def test_graph_supports_checkpointing(self):
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        graph = build_plan_build_review_graph()
+        app = graph.compile(checkpointer=InMemorySaver())
+        assert app is not None
+        config = {"configurable": {"thread_id": "test-thread-1"}}
+        state = app.get_state(config)
+        assert state is not None
+
+    def test_coder_node_has_retry_policy(self):
+        from langgraph_agents.graphs.build_review import build_build_review_graph
+
+        graph = build_build_review_graph()
+        compiled = graph.compile()
+        assert compiled is not None
+
+
 class TestBuildReviewFeedbackInjection:
-    """Verify _call_build_review injects e2e_feedback on re-entry."""
+    """Verify _call_build_review injects e2e_feedback and caps build budget on re-entry.
+
+    These tests call the REAL _call_build_review() with a mocked build_review_app,
+    then inspect the subgraph_input that was passed to build_review_app.invoke().
+    """
+
+    def _make_state(self, **overrides) -> dict:
+        defaults = {
+            "task": "test",
+            "current_plan": "plan",
+            "current_code": "",
+            "workspace_path": "/tmp",
+            "e2e_verdict": "",
+            "e2e_report": "",
+            "e2e_cycle": 0,
+        }
+        return {**defaults, **overrides}
 
     def test_no_e2e_report_means_empty_feedback(self):
         from langgraph_agents.graphs.plan_build_review import _call_build_review
 
-        # We can't easily invoke the full subgraph, but we can verify the
-        # wrapper constructs the correct subgraph input by inspecting its logic.
-        # The key behavior: e2e_feedback is empty when e2e_verdict != "REVISE".
-        state = {
-            "task": "test",
-            "current_plan": "plan",
-            "current_code": "",
-            "workspace_path": "/tmp",
-            "e2e_verdict": "APPROVE",
-            "e2e_report": "some report",
-            "e2e_cycle": 1,
-        }
-        # When verdict is APPROVE, e2e_feedback should be empty regardless of e2e_report
-        e2e_feedback = state.get("e2e_report", "") if state.get("e2e_verdict") == "REVISE" else ""
-        assert e2e_feedback == ""
+        with patch("langgraph_agents.graphs.plan_build_review.build_review_app") as mock_app:
+            mock_app.invoke.return_value = {"code_diff": ""}
+            state = self._make_state(e2e_verdict="APPROVE", e2e_report="some report", e2e_cycle=1)
+            _call_build_review(state)
+
+        subgraph_input = mock_app.invoke.call_args[0][0]
+        assert subgraph_input["e2e_feedback"] == "", (
+            "Non-REVISE verdict must NOT inject e2e_report into the subgraph"
+        )
 
     def test_revise_injects_e2e_report(self):
-        state = {
-            "task": "test",
-            "current_plan": "plan",
-            "current_code": "",
-            "workspace_path": "/tmp",
-            "e2e_verdict": "REVISE",
-            "e2e_report": "INTENT GAPS: quality is poor\nEVIDENCE: ...",
-            "e2e_cycle": 1,
-        }
-        e2e_feedback = state.get("e2e_report", "") if state.get("e2e_verdict") == "REVISE" else ""
-        assert e2e_feedback == "INTENT GAPS: quality is poor\nEVIDENCE: ..."
+        from langgraph_agents.graphs.plan_build_review import _call_build_review
+
+        report = "INTENT GAPS: quality is poor\nEVIDENCE: ..."
+        with patch("langgraph_agents.graphs.plan_build_review.build_review_app") as mock_app:
+            mock_app.invoke.return_value = {"code_diff": ""}
+            state = self._make_state(e2e_verdict="REVISE", e2e_report=report, e2e_cycle=1)
+            _call_build_review(state)
+
+        subgraph_input = mock_app.invoke.call_args[0][0]
+        assert subgraph_input["e2e_feedback"] == report, (
+            "REVISE verdict must inject the full e2e_report as e2e_feedback"
+        )
+
+    def test_initial_entry_starts_build_cycle_at_zero(self):
+        """First build-review pass gets the full cycle budget."""
+        from langgraph_agents.graphs.plan_build_review import _call_build_review
+
+        with patch("langgraph_agents.graphs.plan_build_review.build_review_app") as mock_app:
+            mock_app.invoke.return_value = {"code_diff": ""}
+            state = self._make_state(e2e_verdict="", e2e_cycle=0)
+            _call_build_review(state)
+
+        subgraph_input = mock_app.invoke.call_args[0][0]
+        assert subgraph_input["build_cycle"] == 0, (
+            "Initial (non-reentry) invocation must pass build_cycle=0 for full budget"
+        )
+
+    def test_e2e_reentry_caps_build_cycle(self):
+        """E2E REVISE re-entry sets build_cycle to MAX-1, allowing exactly one pass."""
+        from langgraph_agents.graphs.build_review import MAX_BUILD_CYCLES
+        from langgraph_agents.graphs.plan_build_review import _call_build_review
+
+        with patch("langgraph_agents.graphs.plan_build_review.build_review_app") as mock_app:
+            mock_app.invoke.return_value = {"code_diff": "..."}
+            state = self._make_state(e2e_verdict="REVISE", e2e_report="...", e2e_cycle=1)
+            _call_build_review(state)
+
+        subgraph_input = mock_app.invoke.call_args[0][0]
+        assert subgraph_input["build_cycle"] == MAX_BUILD_CYCLES - 1, (
+            f"E2E re-entry must cap build_cycle at MAX-1 ({MAX_BUILD_CYCLES - 1}), "
+            f"got: {subgraph_input['build_cycle']}"
+        )

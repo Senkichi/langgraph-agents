@@ -7,7 +7,7 @@ Cycles up to 4 times or until both reviewers approve.
 """
 
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import Send
+from langgraph.types import RetryPolicy, Send
 
 from langgraph_agents.nodes.architectural_reviewer import architectural_review
 from langgraph_agents.nodes.behavioral_reviewer import behavioral_review
@@ -16,6 +16,12 @@ from langgraph_agents.nodes.prompt_review_synthesizer import synthesize_prompt_r
 from langgraph_agents.state import PromptBuildState
 
 MAX_BUILD_CYCLES = 4
+
+_SUBPROCESS_RETRY = RetryPolicy(
+    max_attempts=3,
+    initial_interval=2.0,
+    retry_on=RuntimeError,
+)
 
 
 def _fan_out_to_reviewers(state: PromptBuildState) -> list[Send]:
@@ -39,9 +45,9 @@ def build_prompt_build_review_graph() -> StateGraph:
     """Build the prompt build-review subgraph."""
     graph = StateGraph(PromptBuildState)
 
-    graph.add_node("prompt_engineer", prompt_engineer)
-    graph.add_node("behavioral_reviewer", behavioral_review)
-    graph.add_node("architectural_reviewer", architectural_review)
+    graph.add_node("prompt_engineer", prompt_engineer, retry_policy=_SUBPROCESS_RETRY)
+    graph.add_node("behavioral_reviewer", behavioral_review, retry_policy=_SUBPROCESS_RETRY)
+    graph.add_node("architectural_reviewer", architectural_review, retry_policy=_SUBPROCESS_RETRY)
     graph.add_node("synthesizer", synthesize_prompt_reviews, defer=True)
 
     graph.add_edge(START, "prompt_engineer")
@@ -61,4 +67,12 @@ def build_prompt_build_review_graph() -> StateGraph:
     return graph
 
 
-prompt_build_review_app = build_prompt_build_review_graph().compile()
+def compile_prompt_build_review(checkpointer=None):
+    """Compile the prompt build-review graph with an optional checkpointer."""
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    cp = checkpointer if checkpointer is not None else InMemorySaver()
+    return build_prompt_build_review_graph().compile(checkpointer=cp)
+
+
+prompt_build_review_app = compile_prompt_build_review()
