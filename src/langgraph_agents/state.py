@@ -39,6 +39,8 @@ class BuildReviewState(TypedDict):
     # e2e failure. No subgraph node writes this field — it is the only
     # BuildReviewState field populated from outside the subgraph.
     e2e_feedback: str
+    resolved_issues: list[str]  # confirmed-fixed CRITICAL/MAJOR issues
+    persistent_rules: str  # constraint list derived from resolved CRITICALs; bounded at 5 rules
 
 
 class PromptBuildState(TypedDict):

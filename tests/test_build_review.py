@@ -48,6 +48,7 @@ class TestSynthesizer:
             "micro_feedback": "", "macro_feedback": "",
             "task": "", "current_plan": "", "code_diff": "", "workspace_path": "",
             "build_verdict": "", "build_feedback": "", "build_cycle": 0, "e2e_feedback": "",
+            "resolved_issues": [], "persistent_rules": "",
         }
         return {**defaults, **overrides}
 
@@ -138,3 +139,34 @@ class TestSynthesizer:
         # Structured content preserved
         assert "VERDICT:REVISE" in result["build_feedback"]
         assert "CRITICAL" in result["build_feedback"]
+
+    def test_synthesizer_accumulates_resolved_issues_on_approve(self):
+        """When verdict is APPROVE and prior feedback had CRITICAL items, they become resolved."""
+        state = self._base_state(
+            micro_feedback="VERDICT:APPROVE\nREASONING:Fixed.",
+            macro_feedback="VERDICT:APPROVE\nREASONING:Good.",
+            build_feedback="CRITICAL:\n- foo.py:10 — null deref — ACTION: add guard",
+        )
+        result = synthesize_reviews(state)
+        assert result["build_verdict"] == "APPROVE"
+        assert "foo.py:10" in result["resolved_issues"][0]
+
+    def test_synthesizer_does_not_populate_resolved_on_revise(self):
+        state = self._base_state(
+            micro_feedback="VERDICT:REVISE\nREASONING:Still broken.",
+            macro_feedback="VERDICT:APPROVE\nREASONING:OK.",
+            build_feedback="CRITICAL:\n- bar.py:5 — bad logic — ACTION: fix",
+        )
+        result = synthesize_reviews(state)
+        assert result["build_verdict"] == "REVISE"
+        assert result["resolved_issues"] == []
+
+    def test_synthesizer_preserves_existing_resolved_issues(self):
+        state = self._base_state(
+            micro_feedback="VERDICT:APPROVE\nREASONING:All good.",
+            macro_feedback="VERDICT:APPROVE\nREASONING:Solid.",
+            resolved_issues=["prior_issue"],
+            build_feedback="MAJOR:\n- baz.py:1 — perf — ACTION: optimize",
+        )
+        result = synthesize_reviews(state)
+        assert "prior_issue" in result["resolved_issues"]

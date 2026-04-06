@@ -4,6 +4,9 @@ Pure Python — no LLM call. Deterministic: either REVISE means REVISE.
 Extracts only the structured verdict block from each reviewer, discarding
 tool-use traces and exploration noise. When one reviewer approves and the
 other revises, the approval is preserved as a "do not regress" signal.
+
+Also accumulates resolved_issues (CRITICAL/MAJOR items confirmed fixed) and
+persistent_rules (constraints derived from resolved CRITICALs) across cycles.
 """
 
 from langgraph_agents.node_contract import (
@@ -14,6 +17,31 @@ from langgraph_agents.node_contract import (
     validate_node,
 )
 from langgraph_agents.state import BuildReviewState
+
+_MAX_PERSISTENT_RULES = 5
+
+
+def _extract_critical_major_issues(feedback_block: str) -> list[str]:
+    """Extract file:line issue descriptions from CRITICAL and MAJOR sections."""
+    issues: list[str] = []
+    in_target_section = False
+    for line in feedback_block.splitlines():
+        if line.startswith(("CRITICAL:", "MAJOR:")):
+            in_target_section = True
+        elif line.startswith(("MINOR:", "VERDICT:", "REASONING:", "##")):
+            in_target_section = False
+        elif in_target_section and line.startswith("- "):
+            issues.append(line[2:].strip())
+    return issues
+
+
+def _derive_rule(issue_line: str) -> str:
+    """Convert a resolved CRITICAL issue line to a brief constraint rule."""
+    if " — ACTION: " in issue_line:
+        action = issue_line.split(" — ACTION: ", 1)[1].strip()
+        rule = action[0].upper() + action[1:]
+        return rule if rule.endswith(".") else rule + "."
+    return issue_line.strip()
 
 
 @validate_node(
@@ -61,4 +89,41 @@ def synthesize_reviews(state: BuildReviewState) -> dict:
 
     feedback = "\n\n".join(parts) if parts else "Both reviewers approved."
 
-    return {"build_verdict": verdict, "build_feedback": feedback}
+    # --- Accumulate resolved issues ---
+    existing_resolved = list(state.get("resolved_issues") or [])
+    new_resolved: list[str] = []
+    if verdict == "APPROVE" and state.get("build_feedback"):
+        new_resolved = _extract_critical_major_issues(state["build_feedback"])
+    resolved_issues = existing_resolved + new_resolved
+
+    # --- Derive persistent rules from resolved CRITICALs ---
+    existing_rules_text = (state.get("persistent_rules") or "").strip()
+    existing_rules = [r for r in existing_rules_text.splitlines() if r.strip()]
+
+    new_critical: list[str] = []
+    if verdict == "APPROVE" and state.get("build_feedback"):
+        in_critical = False
+        for line in state["build_feedback"].splitlines():
+            if line.startswith("CRITICAL:"):
+                in_critical = True
+            elif line.startswith(("MAJOR:", "MINOR:", "VERDICT:", "##")):
+                in_critical = False
+            elif in_critical and line.startswith("- "):
+                new_critical.append(line[2:].strip())
+
+    new_rules = [_derive_rule(issue) for issue in new_critical]
+    all_rules = existing_rules + new_rules
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for rule in reversed(all_rules):
+        if rule not in seen:
+            seen.add(rule)
+            deduped.insert(0, rule)
+    persistent_rules = "\n".join(deduped[:_MAX_PERSISTENT_RULES])
+
+    return {
+        "build_verdict": verdict,
+        "build_feedback": feedback,
+        "resolved_issues": resolved_issues,
+        "persistent_rules": persistent_rules,
+    }

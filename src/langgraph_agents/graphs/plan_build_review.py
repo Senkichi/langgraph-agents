@@ -28,7 +28,7 @@ Usage:
 
 from langgraph.graph import END, START, StateGraph
 
-from langgraph_agents.graphs.build_review import build_review_app
+from langgraph_agents.graphs.build_review import MAX_BUILD_CYCLES, build_review_app
 from langgraph_agents.graphs.plan_review import plan_review_app
 from langgraph_agents.nodes.e2e_tester import e2e_test
 from langgraph_agents.state import (
@@ -59,7 +59,13 @@ def _call_build_review(state: ParentState) -> dict:
     When re-entering after an e2e failure, injects the e2e report as
     e2e_feedback so the coder sees intent-gap diagnostics on its first cycle.
     """
-    e2e_feedback = state.get("e2e_report", "") if state.get("e2e_verdict") == "REVISE" else ""
+    is_e2e_reentry = state.get("e2e_verdict") == "REVISE"
+    e2e_feedback = state.get("e2e_report", "") if is_e2e_reentry else ""
+
+    # On e2e re-entry, start build_cycle at MAX-1 so only one coder+review
+    # pass runs before returning to e2e. On initial entry, start at 0 for
+    # the full budget.
+    build_cycle = MAX_BUILD_CYCLES - 1 if is_e2e_reentry else 0
 
     subgraph_input: BuildReviewState = {
         "task": state.get("task", ""),
@@ -70,8 +76,10 @@ def _call_build_review(state: ParentState) -> dict:
         "macro_feedback": "",
         "build_verdict": "",
         "build_feedback": "",
-        "build_cycle": 0,
+        "build_cycle": build_cycle,
         "e2e_feedback": e2e_feedback,
+        "resolved_issues": [],
+        "persistent_rules": "",
     }
     result = build_review_app.invoke(subgraph_input)
     return {"current_code": result.get("code_diff", "")}

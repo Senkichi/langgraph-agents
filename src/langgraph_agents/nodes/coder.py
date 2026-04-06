@@ -26,17 +26,28 @@ CODER_SYSTEM_PROMPT = (
 def _build_coder_context(state: BuildReviewState) -> str:
     """Build the prompt for the coder agent."""
     parts = [f"## Task\n{state['task']}", f"## Approved Plan\n{state['current_plan']}"]
+
+    if state.get("persistent_rules"):
+        parts.append(
+            "## Engineering Constraints (learned from prior cycles — treat as hard rules)\n"
+            + state["persistent_rules"]
+        )
+
+    resolved = state.get("resolved_issues") or []
+    if resolved:
+        issue_list = "\n".join(f"- {issue}" for issue in resolved)
+        parts.append(
+            "## Do Not Reintroduce (confirmed fixed in a prior cycle — keep these passing)\n"
+            + issue_list
+        )
+
     if state.get("e2e_feedback"):
         parts.append(
-            "## End-to-End Test Findings (address these FIRST — they represent "
-            "gaps between what the code does and what it was supposed to achieve)\n"
+            "## End-to-End Test Findings (address these FIRST)\n"
             f"{state['e2e_feedback']}"
         )
     if state.get("build_feedback"):
-        parts.append(
-            "## Reviewer Feedback\n"
-            f"{state['build_feedback']}"
-        )
+        parts.append(f"## Reviewer Feedback\n{state['build_feedback']}")
         if state.get("code_diff"):
             parts.append(f"## Current Code Diff\n```diff\n{state['code_diff']}\n```")
     return "\n\n".join(parts)
