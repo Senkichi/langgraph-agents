@@ -8,11 +8,6 @@ from langgraph_agents.nodes.prompt_review_synthesizer import synthesize_prompt_r
 
 
 class TestPromptBuildReviewGraph:
-    def test_graph_compiles(self):
-        graph = build_prompt_build_review_graph()
-        compiled = graph.compile()
-        assert compiled is not None
-
     def test_graph_has_expected_nodes(self):
         graph = build_prompt_build_review_graph()
         compiled = graph.compile()
@@ -21,6 +16,16 @@ class TestPromptBuildReviewGraph:
         assert "behavioral_reviewer" in node_names
         assert "architectural_reviewer" in node_names
         assert "synthesizer" in node_names
+
+    def test_graph_edges_flow_correctly(self):
+        """Verify the prompt build-review graph connects engineer → fan-out → synthesizer."""
+        graph = build_prompt_build_review_graph()
+        compiled = graph.compile()
+        graph_data = compiled.get_graph()
+        edge_sources = {e.source for e in graph_data.edges}
+        assert "__start__" in edge_sources
+        assert "prompt_engineer" in edge_sources
+        assert "synthesizer" in edge_sources
 
 
 class TestRoutingLogic:
@@ -68,7 +73,8 @@ class TestPromptSynthesizer:
         }
         result = synthesize_prompt_reviews(state)
         assert result["build_verdict"] == "REVISE"
-        assert "Behavioral Review (REVISE)" in result["build_feedback"]
+        assert "Behavioral Review (REVISE" in result["build_feedback"]
+        assert "Architectural Review (APPROVED" in result["build_feedback"]
 
     def test_architectural_revise(self):
         state = {
@@ -78,7 +84,8 @@ class TestPromptSynthesizer:
         }
         result = synthesize_prompt_reviews(state)
         assert result["build_verdict"] == "REVISE"
-        assert "Architectural Review (REVISE)" in result["build_feedback"]
+        assert "Architectural Review (REVISE" in result["build_feedback"]
+        assert "Behavioral Review (APPROVED" in result["build_feedback"]
 
     def test_both_revise(self):
         state = {

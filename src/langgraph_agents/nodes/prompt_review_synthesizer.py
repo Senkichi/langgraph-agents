@@ -1,6 +1,8 @@
 """Prompt review synthesizer: merges behavioral and architectural review verdicts.
 
 Pure Python — no LLM call. Deterministic: either REVISE means REVISE.
+When one reviewer approves and the other revises, the approval is preserved
+as a "do not regress" signal.
 """
 
 from langgraph_agents.node_contract import (
@@ -32,14 +34,24 @@ def synthesize_prompt_reviews(state: PromptBuildState) -> dict:
 
     parts: list[str] = []
     if behavioral_revise:
-        parts.append(f"## Behavioral Review (REVISE)\n{extract_verdict_block(behavioral)}")
-    elif behavioral:
-        parts.append(f"## Behavioral Review (APPROVE)\n{extract_verdict_block(behavioral)}")
+        parts.append(
+            f"## Behavioral Review (REVISE — must fix)\n{extract_verdict_block(behavioral)}"
+        )
+    elif architectural_revise:
+        parts.append(
+            f"## Behavioral Review (APPROVED — do not regress these patterns)\n"
+            f"{extract_verdict_block(behavioral)}"
+        )
 
     if architectural_revise:
-        parts.append(f"## Architectural Review (REVISE)\n{extract_verdict_block(architectural)}")
-    elif architectural:
-        parts.append(f"## Architectural Review (APPROVE)\n{extract_verdict_block(architectural)}")
+        parts.append(
+            f"## Architectural Review (REVISE — must fix)\n{extract_verdict_block(architectural)}"
+        )
+    elif behavioral_revise:
+        parts.append(
+            f"## Architectural Review (APPROVED — do not regress these patterns)\n"
+            f"{extract_verdict_block(architectural)}"
+        )
 
     feedback = "\n\n".join(parts) if parts else "Both reviewers approved."
 

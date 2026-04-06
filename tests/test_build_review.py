@@ -60,19 +60,22 @@ class TestSynthesizer:
         assert result["build_verdict"] == "APPROVE"
         assert result["build_feedback"] == "Both reviewers approved."
 
-    def test_micro_revise_omits_approve_feedback(self):
+    def test_micro_revise_includes_approve_as_preservation_signal(self):
+        """When micro REVISEs and macro APPROVEs, macro's approval is included
+        as a 'do not regress' signal so the coder knows what to preserve."""
         state = self._base_state(
             micro_feedback="VERDICT:REVISE\nREASONING:Bugs found.\n\nCRITICAL:\n- foo.py:10 — null deref — ACTION: add guard",
-            macro_feedback="VERDICT:APPROVE\nREASONING:Fine.",
+            macro_feedback="VERDICT:APPROVE\nREASONING:Architecture is solid.",
         )
         result = synthesize_reviews(state)
         assert result["build_verdict"] == "REVISE"
         assert "## Micro Review" in result["build_feedback"]
-        # APPROVE macro feedback should NOT appear
-        assert "Macro Review" not in result["build_feedback"]
         assert "CRITICAL" in result["build_feedback"]
+        assert "Macro Review" in result["build_feedback"]
+        assert "do not regress" in result["build_feedback"].lower() or "APPROVED" in result["build_feedback"]
 
-    def test_macro_revise_omits_approve_feedback(self):
+    def test_macro_revise_includes_approve_as_preservation_signal(self):
+        """When macro REVISEs and micro APPROVEs, micro's approval is included."""
         state = self._base_state(
             micro_feedback="VERDICT:APPROVE\nREASONING:Clean.",
             macro_feedback="VERDICT:REVISE\nREASONING:Bad architecture.\n\nMAJOR:\n- api.py:5 — no separation — ACTION: extract service layer",
@@ -80,8 +83,18 @@ class TestSynthesizer:
         result = synthesize_reviews(state)
         assert result["build_verdict"] == "REVISE"
         assert "## Macro Review" in result["build_feedback"]
-        # APPROVE micro feedback should NOT appear
-        assert "Micro Review" not in result["build_feedback"]
+        assert "Micro Review" in result["build_feedback"]
+        assert "do not regress" in result["build_feedback"].lower() or "APPROVED" in result["build_feedback"]
+
+    def test_both_approve_no_preservation_noise(self):
+        """When both approve, the feedback stays minimal — no spurious preservation sections."""
+        state = self._base_state(
+            micro_feedback="VERDICT:APPROVE\nREASONING:Looks good.",
+            macro_feedback="VERDICT:APPROVE\nREASONING:Solid.",
+        )
+        result = synthesize_reviews(state)
+        assert result["build_verdict"] == "APPROVE"
+        assert "do not regress" not in result["build_feedback"].lower()
 
     def test_both_revise(self):
         state = self._base_state(
