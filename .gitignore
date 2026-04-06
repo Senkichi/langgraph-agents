@@ -15,5 +15,6 @@ wheels/
 # Testing
 .pytest_cache/
 
-# Trace logs
+# Trace logs and runtime state
 logs/
+run_todo_state.json
