@@ -31,11 +31,11 @@ from langgraph.types import RetryPolicy
 
 from langgraph_agents.graphs.build_review import MAX_BUILD_CYCLES, build_review_app
 from langgraph_agents.graphs.plan_review import plan_review_app
+from langgraph_agents.nodes.discover_architecture import discover_architecture
 from langgraph_agents.nodes.e2e_tester import e2e_test
 from langgraph_agents.state import (
     BuildReviewState,
     ParentState,
-    PlanReviewState,
 )
 
 MAX_E2E_CYCLES = 2
@@ -45,19 +45,6 @@ _SUBPROCESS_RETRY = RetryPolicy(
     initial_interval=2.0,
     retry_on=RuntimeError,
 )
-
-
-def _call_plan_review(state: ParentState) -> dict:
-    """Wrapper: transforms parent state → subgraph input → subgraph output."""
-    subgraph_input: PlanReviewState = {
-        "task": state.get("task", ""),
-        "current_plan": state.get("current_plan", ""),
-        "plan_feedback": "",
-        "plan_verdict": "",
-        "plan_cycle": 0,
-    }
-    result = plan_review_app.invoke(subgraph_input)
-    return {"current_plan": result["current_plan"]}
 
 
 def _call_build_review(state: ParentState) -> dict:
@@ -106,22 +93,24 @@ def _route_entry(state: ParentState) -> str:
     """Skip plan review when caller has a pre-validated plan."""
     if state.get("skip_plan_review"):
         return "build_review"
-    return "plan_review"
+    return "discover_architecture"
 
 
 def build_plan_build_review_graph() -> StateGraph:
-    """Build the parent graph composing plan-review, build-review, and e2e-test."""
+    """Build the parent graph composing discover, plan-review, build-review, and e2e-test."""
     graph = StateGraph(ParentState)
 
-    graph.add_node("plan_review", _call_plan_review)
+    graph.add_node("discover_architecture", discover_architecture, retry_policy=_SUBPROCESS_RETRY)
+    graph.add_node("plan_review", plan_review_app)  # native subgraph
     graph.add_node("build_review", _call_build_review)
     graph.add_node("e2e_test", e2e_test, retry_policy=_SUBPROCESS_RETRY)
 
     graph.add_conditional_edges(
         START,
         _route_entry,
-        {"plan_review": "plan_review", "build_review": "build_review"},
+        {"discover_architecture": "discover_architecture", "build_review": "build_review"},
     )
+    graph.add_edge("discover_architecture", "plan_review")
     graph.add_edge("plan_review", "build_review")
     graph.add_edge("build_review", "e2e_test")
     graph.add_conditional_edges(

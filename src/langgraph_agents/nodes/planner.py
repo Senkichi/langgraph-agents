@@ -19,6 +19,8 @@ SYSTEM_PROMPT = (
 def plan(state: PlanReviewState) -> dict:
     """Create or revise an implementation plan based on task and feedback."""
     parts = [f"## Task\n{state['task']}"]
+    if state.get("agent_architecture"):
+        parts.append(f"## Workspace Architecture\n{state['agent_architecture']}")
     if state.get("current_plan"):
         parts.append(f"## Current Plan\n{state['current_plan']}")
     if state.get("plan_feedback"):

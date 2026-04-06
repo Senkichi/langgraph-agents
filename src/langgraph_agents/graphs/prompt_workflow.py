@@ -37,6 +37,7 @@ def _call_plan_review(state: PromptWorkflowState) -> dict:
     subgraph_input: PlanReviewState = {
         "task": enriched_task,
         "current_plan": state.get("current_plan", ""),
+        "agent_architecture": state.get("agent_architecture", ""),
         "plan_feedback": "",
         "plan_verdict": "",
         "plan_cycle": 0,

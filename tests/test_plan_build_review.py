@@ -19,6 +19,7 @@ class TestPlanBuildReviewGraph:
         graph = build_plan_build_review_graph()
         compiled = graph.compile()
         node_names = set(compiled.get_graph().nodes.keys())
+        assert "discover_architecture" in node_names
         assert "plan_review" in node_names
         assert "build_review" in node_names
         assert "e2e_test" in node_names
@@ -78,13 +79,13 @@ class TestSkipPlanReview:
         state = {"skip_plan_review": True}
         assert _route_entry(state) == "build_review"
 
-    def test_no_skip_routes_start_to_plan_review(self):
+    def test_no_skip_routes_start_to_discover_architecture(self):
         state = {"skip_plan_review": False}
-        assert _route_entry(state) == "plan_review"
+        assert _route_entry(state) == "discover_architecture"
 
-    def test_missing_flag_defaults_to_plan_review(self):
+    def test_missing_flag_defaults_to_discover_architecture(self):
         state = {}
-        assert _route_entry(state) == "plan_review"
+        assert _route_entry(state) == "discover_architecture"
 
 
 class TestCheckpointing:
@@ -104,6 +105,17 @@ class TestCheckpointing:
         graph = build_build_review_graph()
         compiled = graph.compile()
         assert compiled is not None
+
+    def test_plan_review_visible_in_subgraph_stream(self):
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        graph = build_plan_build_review_graph()
+        compiled = graph.compile(checkpointer=InMemorySaver())
+        graph_data = compiled.get_graph(xray=True)
+        all_node_names = {n for n in graph_data.nodes.keys()}
+        # Native subgraph nodes are prefixed: plan_review:planner, plan_review:plan_reviewer
+        has_plan_review = any("plan_review" in n for n in all_node_names)
+        assert has_plan_review
 
 
 class TestBuildReviewFeedbackInjection:

@@ -10,6 +10,7 @@ class ParentState(TypedDict):
     workspace_path: str  # Directory where code is written
     e2e_verdict: str  # "APPROVE" | "REVISE" | "SKIP" | ""
     e2e_report: str  # LLM-optimized diagnostic report (or skip reason)
+    agent_architecture: str  # compressed workspace architecture summary
     e2e_cycle: int  # 0 → max 2
     skip_plan_review: bool  # True = bypass plan_review, go straight to build_review
 
@@ -19,6 +20,7 @@ class PlanReviewState(TypedDict):
 
     task: str
     current_plan: str  # Replaced each cycle
+    agent_architecture: str  # Shared key with ParentState — flows down automatically
     plan_feedback: str  # Replaced each cycle
     plan_verdict: str  # "APPROVE" | "REVISE" | ""
     plan_cycle: int  # 0 → max 2
