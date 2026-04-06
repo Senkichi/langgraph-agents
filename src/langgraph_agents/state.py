@@ -1,16 +1,4 @@
-from typing import Annotated
-
 from typing_extensions import TypedDict
-
-from langgraph.graph import add_messages
-
-
-class AgentState(TypedDict):
-    """Base state shared across all graph nodes."""
-
-    messages: Annotated[list, add_messages]
-    task: str
-    result: str
 
 
 class ParentState(TypedDict):
@@ -32,7 +20,7 @@ class PlanReviewState(TypedDict):
     current_plan: str  # Replaced each cycle
     plan_feedback: str  # Replaced each cycle
     plan_verdict: str  # "APPROVE" | "REVISE" | ""
-    plan_cycle: int  # 0 → max 4
+    plan_cycle: int  # 0 → max 2
 
 
 class BuildReviewState(TypedDict):
