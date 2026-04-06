@@ -2,22 +2,11 @@ from unittest.mock import patch
 
 from langgraph_agents.nodes.e2e_tester import (
     _build_e2e_context,
-    _format_feedback,
+    _extract_changed_files,
     _parse_verdict,
+    _suggest_test_commands,
     e2e_test,
 )
-
-
-class TestFormatFeedback:
-    def test_verdict_present_unchanged(self):
-        text = "Analysis...\nVERDICT:APPROVE\nREASONING:All good."
-        assert _format_feedback(text) == text
-
-    def test_missing_verdict_defaults_to_revise(self):
-        text = "Some analysis without a verdict line."
-        result = _format_feedback(text)
-        assert result.startswith("VERDICT:REVISE\n")
-        assert text in result
 
 
 class TestParseVerdict:
@@ -41,6 +30,75 @@ class TestParseVerdict:
 
     def test_unknown_verdict_defaults_to_revise(self):
         assert _parse_verdict("VERDICT:MAYBE") == "REVISE"
+
+
+class TestExtractChangedFiles:
+    def test_extracts_paths_from_unified_diff(self):
+        diff = (
+            "--- a/src/foo.py\n"
+            "+++ b/src/foo.py\n"
+            "@@ -1,3 +1,4 @@\n"
+            "+new line\n"
+            "--- a/src/bar.py\n"
+            "+++ b/src/bar.py\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+new\n"
+        )
+        assert _extract_changed_files(diff) == ["src/bar.py", "src/foo.py"]
+
+    def test_deduplicates(self):
+        diff = "+++ b/src/foo.py\n+++ b/src/foo.py\n"
+        assert _extract_changed_files(diff) == ["src/foo.py"]
+
+    def test_excludes_dev_null(self):
+        diff = "+++ b//dev/null\n+++ b/src/real.py\n"
+        # /dev/null path won't match since it starts with /
+        assert "src/real.py" in _extract_changed_files(diff)
+
+    def test_empty_diff(self):
+        assert _extract_changed_files("") == []
+
+    def test_no_plus_lines(self):
+        assert _extract_changed_files("just some text\nno diff markers") == []
+
+
+class TestSuggestTestCommands:
+    def test_maps_source_files_to_test_commands(self):
+        files = ["src/pkg/enricher.py", "src/pkg/scorer.py"]
+        result = _suggest_test_commands(files)
+        assert "## Suggested Test Commands" in result
+        assert "enricher" in result
+        assert "scorer" in result
+        assert "-x --tb=short" in result
+
+    def test_skips_test_files(self):
+        files = ["tests/test_foo.py", "src/bar.py"]
+        result = _suggest_test_commands(files)
+        assert "bar" in result
+        assert "test_foo" not in result
+
+    def test_skips_non_python_files(self):
+        files = ["README.md", "config.yaml", "src/app.py"]
+        result = _suggest_test_commands(files)
+        assert "app" in result
+        assert "README" not in result
+        assert "config" not in result
+
+    def test_returns_empty_for_no_source_files(self):
+        assert _suggest_test_commands(["tests/test_a.py", "README.md"]) == ""
+
+    def test_caps_at_five_commands(self):
+        files = [f"src/mod{i}.py" for i in range(10)]
+        result = _suggest_test_commands(files)
+        assert result.count("uv run pytest") == 5
+
+    def test_skips_test_files_with_leading_slash(self):
+        files = ["src/utils/test_helper.py", "src/core.py"]
+        result = _suggest_test_commands(files)
+        assert "core" in result
+        # test_helper contains /test_ so it's skipped
+        assert "test_helper" not in result
 
 
 class TestBuildE2eContext:
@@ -85,14 +143,49 @@ class TestBuildE2eContext:
         context = _build_e2e_context(state)
         assert "OLD REPORT SHOULD NOT APPEAR" not in context
 
+    def test_includes_test_commands_when_diff_has_source_files(self):
+        diff = (
+            "--- a/src/enricher.py\n"
+            "+++ b/src/enricher.py\n"
+            "@@ -1 +1 @@\n"
+            "-old\n"
+            "+new\n"
+        )
+        state = {
+            "task": "task",
+            "current_plan": "plan",
+            "current_code": diff,
+            "workspace_path": "/tmp",
+            "e2e_verdict": "",
+            "e2e_report": "",
+            "e2e_cycle": 0,
+        }
+        context = _build_e2e_context(state)
+        assert "Suggested Test Commands" in context
+        assert "enricher" in context
+
+    def test_no_test_commands_when_only_test_files_changed(self):
+        diff = "+++ b/tests/test_foo.py\n"
+        state = {
+            "task": "task",
+            "current_plan": "plan",
+            "current_code": diff,
+            "workspace_path": "/tmp",
+            "e2e_verdict": "",
+            "e2e_report": "",
+            "e2e_cycle": 0,
+        }
+        context = _build_e2e_context(state)
+        assert "Suggested Test Commands" not in context
+
 
 class TestE2eTestNode:
-    def _make_state(self, **overrides) -> dict:
+    def _make_state(self, tmp_path, **overrides) -> dict:
         defaults = {
             "task": "Build a REST API",
             "current_plan": "1. Create endpoints",
             "current_code": "+app.get('/users')",
-            "workspace_path": "/tmp/workspace",
+            "workspace_path": str(tmp_path),
             "e2e_verdict": "",
             "e2e_report": "",
             "e2e_cycle": 0,
@@ -100,18 +193,18 @@ class TestE2eTestNode:
         return {**defaults, **overrides}
 
     @patch("langgraph_agents.nodes.e2e_tester.invoke_agent")
-    def test_approve_verdict(self, mock_invoke):
+    def test_approve_verdict(self, mock_invoke, tmp_path):
         mock_invoke.return_value = (
             "Tests pass. Output quality is good.\n"
             "VERDICT:APPROVE\n"
             "REASONING:All intended outcomes achieved."
         )
-        result = e2e_test(self._make_state())
+        result = e2e_test(self._make_state(tmp_path))
         assert result["e2e_verdict"] == "APPROVE"
         assert result["e2e_cycle"] == 1
 
     @patch("langgraph_agents.nodes.e2e_tester.invoke_agent")
-    def test_revise_verdict_preserves_report(self, mock_invoke):
+    def test_revise_verdict_preserves_report(self, mock_invoke, tmp_path):
         report = (
             "INTENT GAPS: API returns empty results\n"
             "EVIDENCE: GET /users returns []\n"
@@ -121,42 +214,44 @@ class TestE2eTestNode:
             "REASONING:Output does not match intent."
         )
         mock_invoke.return_value = report
-        result = e2e_test(self._make_state())
+        result = e2e_test(self._make_state(tmp_path))
         assert result["e2e_verdict"] == "REVISE"
         assert "INTENT GAPS" in result["e2e_report"]
         assert result["e2e_cycle"] == 1
 
     @patch("langgraph_agents.nodes.e2e_tester.invoke_agent")
-    def test_skip_verdict(self, mock_invoke):
+    def test_skip_verdict(self, mock_invoke, tmp_path):
         mock_invoke.return_value = (
             "Cannot execute: requires PostgreSQL.\n"
             "VERDICT:SKIP\n"
             "REASONING:Database not available in test environment."
         )
-        result = e2e_test(self._make_state())
+        result = e2e_test(self._make_state(tmp_path))
         assert result["e2e_verdict"] == "SKIP"
         assert "PostgreSQL" in result["e2e_report"]
 
     @patch("langgraph_agents.nodes.e2e_tester.invoke_agent")
-    def test_missing_verdict_defaults_to_revise(self, mock_invoke):
+    def test_missing_verdict_defaults_to_revise(self, mock_invoke, tmp_path):
         mock_invoke.return_value = "The code has issues but I forgot the verdict."
-        result = e2e_test(self._make_state())
+        result = e2e_test(self._make_state(tmp_path))
         assert result["e2e_verdict"] == "REVISE"
         assert result["e2e_report"].startswith("VERDICT:REVISE\n")
 
     @patch("langgraph_agents.nodes.e2e_tester.invoke_agent")
-    def test_cycle_increments_from_current(self, mock_invoke):
+    def test_cycle_increments_from_current(self, mock_invoke, tmp_path):
         mock_invoke.return_value = "VERDICT:APPROVE\nREASONING:Fine."
-        result = e2e_test(self._make_state(e2e_cycle=1))
+        result = e2e_test(self._make_state(tmp_path, e2e_cycle=1))
         assert result["e2e_cycle"] == 2
 
     @patch("langgraph_agents.nodes.e2e_tester.invoke_agent")
-    def test_invokes_with_correct_params(self, mock_invoke):
+    def test_invokes_with_correct_params(self, mock_invoke, tmp_path):
         mock_invoke.return_value = "VERDICT:APPROVE\nREASONING:OK."
-        state = self._make_state(workspace_path="/my/workspace")
+        state = self._make_state(tmp_path)
         e2e_test(state)
         mock_invoke.assert_called_once()
         call_kwargs = mock_invoke.call_args
-        assert call_kwargs.kwargs["cwd"] == "/my/workspace"
-        assert call_kwargs.kwargs["model"] == "opus"
+        assert call_kwargs.kwargs["cwd"] == str(tmp_path)
+        assert call_kwargs.kwargs["model"] == "sonnet"
         assert call_kwargs.kwargs["allowed_tools"] == ["Read", "Glob", "Grep", "Bash"]
+        assert call_kwargs.kwargs["max_budget_usd"] == 2.0
+        assert call_kwargs.kwargs["timeout"] == 2700

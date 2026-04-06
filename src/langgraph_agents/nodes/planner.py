@@ -1,4 +1,5 @@
 from langgraph_agents.claude_cli import invoke
+from langgraph_agents.node_contract import non_empty, validate_node
 from langgraph_agents.state import PlanReviewState
 
 SYSTEM_PROMPT = (
@@ -10,6 +11,10 @@ SYSTEM_PROMPT = (
 )
 
 
+@validate_node(
+    pre={"task": non_empty},
+    post={"current_plan": non_empty},
+)
 def plan(state: PlanReviewState) -> dict:
     """Create or revise an implementation plan based on task and feedback."""
     parts = [f"## Task\n{state['task']}"]

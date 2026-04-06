@@ -5,6 +5,13 @@ isolation boundaries, and dependency graph.
 """
 
 from langgraph_agents.claude_cli import invoke_agent
+from langgraph_agents.node_contract import (
+    contains_verdict,
+    format_verdict_feedback,
+    is_path,
+    non_empty,
+    validate_node,
+)
 from langgraph_agents.state import PromptBuildState
 
 SYSTEM_PROMPT = (
@@ -34,13 +41,14 @@ SYSTEM_PROMPT = (
 REVIEW_TOOLS = ["Read", "Glob", "Grep", "Bash"]
 
 
-def _format_feedback(verdict_text: str) -> str:
-    """Ensure the feedback contains a parseable VERDICT: line."""
-    if "VERDICT:" not in verdict_text:
-        return f"VERDICT:REVISE\n{verdict_text}"
-    return verdict_text
-
-
+@validate_node(
+    pre={
+        "current_plan": non_empty,
+        "agent_architecture": non_empty,
+        "workspace_path": is_path,
+    },
+    post={"architectural_feedback": contains_verdict},
+)
 def architectural_review(state: PromptBuildState) -> dict:
     """Architectural review of prompt/knowledge file changes."""
     workspace = state["workspace_path"]
@@ -59,4 +67,4 @@ def architectural_review(state: PromptBuildState) -> dict:
         cwd=workspace,
         allowed_tools=REVIEW_TOOLS,
     )
-    return {"architectural_feedback": _format_feedback(response)}
+    return {"architectural_feedback": format_verdict_feedback(response)}

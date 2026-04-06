@@ -5,6 +5,7 @@ Does NOT write Python code. All changes are to markdown files.
 """
 
 from langgraph_agents.claude_cli import invoke_agent
+from langgraph_agents.node_contract import is_path, non_empty, validate_node
 from langgraph_agents.state import PromptBuildState
 from langgraph_agents.tools.dev_tools import run_git_diff
 
@@ -45,6 +46,15 @@ def _build_context(state: PromptBuildState) -> str:
     return "\n\n".join(parts)
 
 
+@validate_node(
+    pre={
+        "task": non_empty,
+        "current_plan": non_empty,
+        "agent_architecture": non_empty,
+        "workspace_path": is_path,
+    },
+    post={"prompt_diff": non_empty},
+)
 def prompt_engineer(state: PromptBuildState) -> dict:
     """Edit prompt/knowledge files using claude CLI as a full agent."""
     workspace = state["workspace_path"]

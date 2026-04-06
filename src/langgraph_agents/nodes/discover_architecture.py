@@ -7,6 +7,7 @@ boundaries, and shared sync points.
 """
 
 from langgraph_agents.claude_cli import invoke_agent
+from langgraph_agents.node_contract import is_path, non_empty, validate_node
 from langgraph_agents.state import PromptWorkflowState
 
 SYSTEM_PROMPT = (
@@ -34,6 +35,10 @@ SYSTEM_PROMPT = (
 DISCOVERY_TOOLS = ["Read", "Glob", "Grep"]
 
 
+@validate_node(
+    pre={"workspace_path": is_path},
+    post={"agent_architecture": non_empty},
+)
 def discover_architecture(state: PromptWorkflowState) -> dict:
     """Scan the workspace and produce a compressed architecture summary."""
     workspace = state["workspace_path"]

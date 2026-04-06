@@ -3,9 +3,17 @@
 Pure Python — no LLM call. Deterministic: either REVISE means REVISE.
 """
 
+from langgraph_agents.node_contract import is_verdict_value, non_empty, validate_node
 from langgraph_agents.state import PromptBuildState
 
 
+@validate_node(
+    pre={"behavioral_feedback": non_empty, "architectural_feedback": non_empty},
+    post={
+        "build_verdict": is_verdict_value("APPROVE", "REVISE"),
+        "build_feedback": non_empty,
+    },
+)
 def synthesize_prompt_reviews(state: PromptBuildState) -> dict:
     """Merge behavioral and architectural review results into a single verdict."""
     behavioral = state.get("behavioral_feedback", "")

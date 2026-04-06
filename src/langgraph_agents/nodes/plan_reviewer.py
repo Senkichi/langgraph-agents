@@ -1,5 +1,6 @@
 from langgraph_agents.claude_cli import invoke_structured
 from langgraph_agents.models import PlanVerdict
+from langgraph_agents.node_contract import is_verdict_value, non_empty, validate_node
 from langgraph_agents.state import PlanReviewState
 
 SYSTEM_PROMPT = (
@@ -24,6 +25,13 @@ def _format_verdict(verdict: PlanVerdict) -> str:
     return "\n".join(parts)
 
 
+@validate_node(
+    pre={"current_plan": non_empty},
+    post={
+        "plan_verdict": is_verdict_value("APPROVE", "REVISE"),
+        "plan_feedback": non_empty,
+    },
+)
 def review_plan(state: PlanReviewState) -> dict:
     """Antagonistic review of the current plan. Returns structured verdict."""
     content = f"## Task\n{state['task']}\n\n## Plan to Review\n{state['current_plan']}"

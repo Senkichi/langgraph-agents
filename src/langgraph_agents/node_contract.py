@@ -1,0 +1,147 @@
+"""Node contract enforcement: pre/post-condition validation for graph nodes.
+
+Provides a ``validate_node`` decorator that checks typed pre-conditions
+(state fields a node depends on) and post-conditions (fields it promises to
+produce) around every node invocation.  Failures raise ``NodeContractError``
+with all violations listed — loud, not silent.
+
+Also provides ``format_verdict_feedback``, a shared output normalizer that
+logs a warning when the LLM response is missing a VERDICT: line.
+"""
+
+import functools
+import logging
+from pathlib import Path
+from typing import Any, Callable
+
+logger = logging.getLogger(__name__)
+
+
+class NodeContractError(ValueError):
+    """Raised when a node's pre- or post-conditions are violated."""
+
+    def __init__(self, node_name: str, violations: list[str]) -> None:
+        self.node_name = node_name
+        self.violations = violations
+        detail = "\n  ".join(violations)
+        super().__init__(f"Contract violation in '{node_name}':\n  {detail}")
+
+
+# ---------------------------------------------------------------------------
+# Validators — each returns an error string if invalid, ``None`` if valid.
+# ---------------------------------------------------------------------------
+
+
+def non_empty(value: Any) -> str | None:
+    """Value must be a non-whitespace-only string."""
+    if not isinstance(value, str) or not value.strip():
+        return f"expected non-empty string, got {type(value).__name__}: {value!r:.80}"
+    return None
+
+
+def is_path(value: Any) -> str | None:
+    """Value must be a non-empty string pointing to an existing directory."""
+    err = non_empty(value)
+    if err:
+        return err
+    if not Path(value).is_dir():
+        return f"directory does not exist: {value}"
+    return None
+
+
+def contains_verdict(value: Any) -> str | None:
+    """Value must be a non-empty string containing a ``VERDICT:`` line."""
+    err = non_empty(value)
+    if err:
+        return err
+    if "VERDICT:" not in value:
+        return "missing VERDICT: line"
+    return None
+
+
+def is_verdict_value(*allowed: str) -> Callable[[Any], str | None]:
+    """Factory: value must be one of *allowed* strings."""
+
+    def _check(value: Any) -> str | None:
+        if value not in allowed:
+            return f"expected one of {allowed}, got {value!r}"
+        return None
+
+    return _check
+
+
+def is_non_negative_int(value: Any) -> str | None:
+    """Value must be an ``int >= 0``."""
+    if not isinstance(value, int) or value < 0:
+        return f"expected non-negative int, got {type(value).__name__}: {value!r}"
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Decorator
+# ---------------------------------------------------------------------------
+
+type Validator = Callable[[Any], str | None]
+
+
+def validate_node(
+    *,
+    pre: dict[str, Validator] | None = None,
+    post: dict[str, Validator] | None = None,
+) -> Callable:
+    """Decorator that enforces pre/post-conditions on a LangGraph node function.
+
+    *pre* maps state field names to validators checked before the node runs.
+    *post* maps return-dict field names to validators checked after.
+    All violations are collected before raising a single ``NodeContractError``.
+    """
+    _pre = pre or {}
+    _post = post or {}
+
+    def decorator(fn: Callable) -> Callable:
+        @functools.wraps(fn)
+        def wrapper(state: dict) -> dict:
+            errors: list[str] = []
+            for field, validator in _pre.items():
+                error = validator(state.get(field))
+                if error:
+                    errors.append(f"pre[{field}]: {error}")
+            if errors:
+                raise NodeContractError(fn.__name__, errors)
+
+            result = fn(state)
+
+            errors = []
+            for field, validator in _post.items():
+                error = validator(result.get(field))
+                if error:
+                    errors.append(f"post[{field}]: {error}")
+            if errors:
+                raise NodeContractError(fn.__name__, errors)
+
+            return result
+
+        return wrapper
+
+    return decorator
+
+
+# ---------------------------------------------------------------------------
+# Shared output normalizer
+# ---------------------------------------------------------------------------
+
+
+def format_verdict_feedback(verdict_text: str) -> str:
+    """Ensure feedback contains a parseable ``VERDICT:`` line.
+
+    Logs a warning when it has to intervene — this means the LLM did not
+    follow the verdict format instructions.
+    """
+    if "VERDICT:" not in verdict_text:
+        logger.warning(
+            "LLM response missing VERDICT: line — injecting VERDICT:REVISE. "
+            "Response preview: %.200s",
+            verdict_text,
+        )
+        return f"VERDICT:REVISE\n{verdict_text}"
+    return verdict_text

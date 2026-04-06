@@ -4,6 +4,13 @@ Invokes claude CLI with read-only tool access to inspect the workspace.
 """
 
 from langgraph_agents.claude_cli import invoke_agent
+from langgraph_agents.node_contract import (
+    contains_verdict,
+    format_verdict_feedback,
+    is_path,
+    non_empty,
+    validate_node,
+)
 from langgraph_agents.state import BuildReviewState
 
 SYSTEM_PROMPT = (
@@ -16,23 +23,30 @@ SYSTEM_PROMPT = (
     "You can read files and run commands (tests, linters) to verify your findings.\n"
     "Do NOT modify any files.\n\n"
     "Be antagonistic. Find real problems. Do not rubber-stamp.\n\n"
-    "End your response with your final verdict using EXACTLY this format:\n"
+    "End your response with your final verdict using EXACTLY this format:\n\n"
     "VERDICT:<APPROVE or REVISE>\n"
-    "REASONING:<your reasoning>\n"
-    "ISSUES:<comma-separated list of issues, or NONE>\n"
-    "SUGGESTIONS:<comma-separated list of suggestions, or NONE>"
+    "REASONING:<1-3 sentences>\n\n"
+    "If REVISE, categorize every issue by severity. Each issue MUST include\n"
+    "the file path, approximate line number, and a concrete ACTION the coder\n"
+    "should take. Use EXACTLY this structure:\n\n"
+    "CRITICAL:\n"
+    "- <file>:<line> — <what is wrong> — ACTION: <specific fix>\n\n"
+    "MAJOR:\n"
+    "- <file>:<line> — <what is wrong> — ACTION: <specific fix>\n\n"
+    "MINOR:\n"
+    "- <suggestion, not a blocker>\n\n"
+    "Omit empty severity sections. CRITICAL = bugs, security, data loss.\n"
+    "MAJOR = correctness, missing tests, bad error handling.\n"
+    "MINOR = style, naming, minor readability."
 )
 
 REVIEW_TOOLS = ["Read", "Glob", "Grep", "Bash"]
 
 
-def _format_feedback(verdict_text: str) -> str:
-    """Ensure the feedback contains a parseable VERDICT: line."""
-    if "VERDICT:" not in verdict_text:
-        return f"VERDICT:REVISE\n{verdict_text}"
-    return verdict_text
-
-
+@validate_node(
+    pre={"current_plan": non_empty, "workspace_path": is_path},
+    post={"micro_feedback": contains_verdict},
+)
 def micro_review(state: BuildReviewState) -> dict:
     """Micro-level code review using claude CLI."""
     workspace = state["workspace_path"]
@@ -49,5 +63,6 @@ def micro_review(state: BuildReviewState) -> dict:
         cwd=workspace,
         allowed_tools=REVIEW_TOOLS,
         model="sonnet",
+        timeout=3600,
     )
-    return {"micro_feedback": _format_feedback(response)}
+    return {"micro_feedback": format_verdict_feedback(response)}
