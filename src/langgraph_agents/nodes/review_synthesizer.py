@@ -19,6 +19,7 @@ from langgraph_agents.node_contract import (
 from langgraph_agents.state import BuildReviewState
 
 _MAX_PERSISTENT_RULES = 5
+_MAX_RESOLVED_ISSUES = 20
 
 
 def _extract_critical_major_issues(feedback_block: str) -> list[str]:
@@ -94,7 +95,7 @@ def synthesize_reviews(state: BuildReviewState) -> dict:
     new_resolved: list[str] = []
     if verdict == "APPROVE" and state.get("build_feedback"):
         new_resolved = _extract_critical_major_issues(state["build_feedback"])
-    resolved_issues = existing_resolved + new_resolved
+    resolved_issues = (existing_resolved + new_resolved)[-_MAX_RESOLVED_ISSUES:]
 
     # --- Derive persistent rules from resolved CRITICALs ---
     existing_rules_text = (state.get("persistent_rules") or "").strip()

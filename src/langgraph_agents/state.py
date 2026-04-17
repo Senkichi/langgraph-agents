@@ -12,7 +12,13 @@ class ParentState(TypedDict):
     e2e_report: str  # LLM-optimized diagnostic report (or skip reason)
     agent_architecture: str  # compressed workspace architecture summary
     e2e_cycle: int  # 0 → max 2
-    skip_plan_review: bool  # True = bypass plan_review, go straight to build_review
+    skip_plan_review: bool  # True = bypass plan_review, go straight to plan_chunker
+    # --- Chunking fields ---
+    chunks: list[dict]  # serialized ChunkStep dicts from plan_chunker
+    chunk_index: int  # current position in chunks list (0-based)
+    full_plan: str  # preserved copy of the complete approved plan
+    resolved_issues: list[str]  # accumulated across chunks — confirmed-fixed CRITICAL/MAJOR issues
+    persistent_rules: str  # accumulated across chunks — constraint list from resolved CRITICALs
 
 
 class PlanReviewState(TypedDict):

@@ -170,3 +170,74 @@ class TestSynthesizer:
         )
         result = synthesize_reviews(state)
         assert "prior_issue" in result["resolved_issues"]
+
+
+class TestResolvedIssuesCap:
+    """Verify resolved_issues is capped at _MAX_RESOLVED_ISSUES (20)."""
+
+    def _base_state(self, **overrides) -> dict:
+        defaults = {
+            "micro_feedback": "", "macro_feedback": "",
+            "task": "", "current_plan": "", "code_diff": "", "workspace_path": "",
+            "build_verdict": "", "build_feedback": "", "build_cycle": 0, "e2e_feedback": "",
+            "resolved_issues": [], "persistent_rules": "",
+        }
+        return {**defaults, **overrides}
+
+    def _make_feedback(self, n: int, prefix: str = "issue") -> str:
+        lines = ["CRITICAL:"]
+        for i in range(n):
+            lines.append(f"- {prefix}_{i}.py:1 — problem — ACTION: fix")
+        return "\n".join(lines)
+
+    def test_no_truncation_below_limit(self):
+        existing = [f"old_{i}" for i in range(15)]
+        state = self._base_state(
+            micro_feedback="VERDICT:APPROVE\nREASONING:Fixed.",
+            macro_feedback="VERDICT:APPROVE\nREASONING:Good.",
+            resolved_issues=existing,
+            build_feedback=self._make_feedback(3, "new"),
+        )
+        result = synthesize_reviews(state)
+        assert len(result["resolved_issues"]) == 18
+
+    def test_cap_truncates_oldest(self):
+        existing = [f"old_{i}" for i in range(20)]
+        state = self._base_state(
+            micro_feedback="VERDICT:APPROVE\nREASONING:Fixed.",
+            macro_feedback="VERDICT:APPROVE\nREASONING:Good.",
+            resolved_issues=existing,
+            build_feedback=self._make_feedback(3, "new"),
+        )
+        result = synthesize_reviews(state)
+        assert len(result["resolved_issues"]) == 20
+
+    def test_cap_keeps_newest_items(self):
+        existing = [f"old_{i}" for i in range(18)]
+        state = self._base_state(
+            micro_feedback="VERDICT:APPROVE\nREASONING:Fixed.",
+            macro_feedback="VERDICT:APPROVE\nREASONING:Good.",
+            resolved_issues=existing,
+            build_feedback=self._make_feedback(5, "new"),
+        )
+        result = synthesize_reviews(state)
+        resolved = result["resolved_issues"]
+        assert len(resolved) == 20
+        # All 5 new items must be present (they're newest)
+        for i in range(5):
+            assert any(f"new_{i}" in r for r in resolved)
+        # Oldest 3 items should have been dropped (18 + 5 = 23, cap 20)
+        assert not any("old_0.py" in r for r in resolved)
+        assert not any("old_1.py" in r for r in resolved)
+        assert not any("old_2.py" in r for r in resolved)
+
+    def test_revise_verdict_does_not_accumulate(self):
+        existing = [f"old_{i}" for i in range(5)]
+        state = self._base_state(
+            micro_feedback="VERDICT:REVISE\nREASONING:Bugs.",
+            macro_feedback="VERDICT:APPROVE\nREASONING:OK.",
+            resolved_issues=existing,
+            build_feedback=self._make_feedback(3, "new"),
+        )
+        result = synthesize_reviews(state)
+        assert result["resolved_issues"] == existing

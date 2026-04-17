@@ -3,6 +3,7 @@ from unittest.mock import patch
 from langgraph.graph import END
 
 from langgraph_agents.graphs.plan_build_review import (
+    _route_after_discovery,
     _route_after_e2e,
     _route_entry,
     build_plan_build_review_graph,
@@ -75,9 +76,9 @@ class TestE2eRouting:
 
 
 class TestSkipPlanReview:
-    def test_skip_plan_review_routes_start_to_build_review(self):
+    def test_start_always_routes_to_discover_architecture(self):
         state = {"skip_plan_review": True}
-        assert _route_entry(state) == "build_review"
+        assert _route_entry(state) == "discover_architecture"
 
     def test_no_skip_routes_start_to_discover_architecture(self):
         state = {"skip_plan_review": False}
@@ -86,6 +87,14 @@ class TestSkipPlanReview:
     def test_missing_flag_defaults_to_discover_architecture(self):
         state = {}
         assert _route_entry(state) == "discover_architecture"
+
+    def test_skip_plan_review_routes_discovery_to_plan_chunker(self):
+        state = {"skip_plan_review": True}
+        assert _route_after_discovery(state) == "plan_chunker"
+
+    def test_no_skip_routes_discovery_to_plan_review(self):
+        state = {"skip_plan_review": False}
+        assert _route_after_discovery(state) == "plan_review"
 
 
 class TestCheckpointing:
@@ -163,6 +172,30 @@ class TestBuildReviewFeedbackInjection:
         assert subgraph_input["e2e_feedback"] == report, (
             "REVISE verdict must inject the full e2e_report as e2e_feedback"
         )
+
+    def test_revise_uses_full_plan_scope_in_chunked_workflow(self):
+        from langgraph_agents.graphs.plan_build_review import _call_build_review
+
+        with patch("langgraph_agents.graphs.plan_build_review.build_review_app") as mock_app:
+            mock_app.invoke.return_value = {"code_diff": "..."}
+            state = self._make_state(
+                e2e_verdict="REVISE",
+                e2e_report="Cross-cutting issue",
+                e2e_cycle=1,
+                current_plan="legacy current plan",
+                full_plan="1. Step one\n2. Step two",
+                chunks=[
+                    {"step_id": "s1", "title": "First", "plan_section": "Do first"},
+                    {"step_id": "s2", "title": "Second", "plan_section": "Do second"},
+                ],
+                chunk_index=1,
+            )
+            _call_build_review(state)
+
+        subgraph_input = mock_app.invoke.call_args[0][0]
+        assert "The defect may span multiple prior steps" in subgraph_input["current_plan"]
+        assert "## Full Plan\n1. Step one\n2. Step two" in subgraph_input["current_plan"]
+        assert "implement this step only" not in subgraph_input["current_plan"]
 
     def test_initial_entry_starts_build_cycle_at_zero(self):
         """First build-review pass gets the full cycle budget."""

@@ -224,6 +224,7 @@ def run_chunk(chunk_id: int, info: dict[str, str]) -> dict[str, Any]:
         "e2e_verdict": "",
         "e2e_report": "",
         "e2e_cycle": 0,
+        "skip_plan_review": True,
     }
     config = {"configurable": {"thread_id": f"chunk-{chunk_id}"}}
 

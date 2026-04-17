@@ -145,6 +145,8 @@ def invoke(
             raise RuntimeError(error_msg)
 
         response_text = data.get("result", "")
+        if not response_text and json_schema is not None and "structured_output" in data:
+            response_text = json.dumps(data["structured_output"])
         if tracer is not None:
             tracer.llm_call_end(
                 current_node, model or "default", duration_ms, response_text

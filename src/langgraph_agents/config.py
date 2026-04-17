@@ -17,6 +17,8 @@ E2E_MODEL: str = os.environ.get("E2E_MODEL", "sonnet")
 PROMPT_ENGINEER_MODEL: str = os.environ.get("PROMPT_ENGINEER_MODEL", "sonnet")
 DISCOVER_MODEL: str = os.environ.get("DISCOVER_MODEL", "sonnet")
 
+CHUNKER_MODEL: str = os.environ.get("CHUNKER_MODEL", PLANNER_MODEL)
+
 # --- Timeouts (seconds) ---
 CODER_TIMEOUT: int = int(os.environ.get("CODER_TIMEOUT_S", "7200"))
 REVIEWER_TIMEOUT: int = int(os.environ.get("REVIEWER_TIMEOUT_S", "3600"))

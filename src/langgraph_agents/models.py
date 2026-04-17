@@ -25,6 +25,25 @@ class PlanVerdict(BaseModel):
     )
 
 
+class ChunkStep(BaseModel):
+    """A single implementation step decomposed from a larger plan."""
+
+    step_id: str = Field(description="Unique identifier (e.g. 'step_1', 'step_2')")
+    title: str = Field(description="Brief title for this implementation step")
+    plan_section: str = Field(
+        description="Full implementation instructions for the coder — self-contained and actionable",
+    )
+
+
+class ExecutionPlan(BaseModel):
+    """Ordered sequence of implementation steps decomposed from an approved plan."""
+
+    steps: list[ChunkStep] = Field(
+        description="Ordered list of implementation steps. Each step should be self-contained enough for a single coder pass.",
+        min_length=1,
+    )
+
+
 class CodeVerdict(BaseModel):
     """Structured output from a code reviewer (micro or macro)."""
 
