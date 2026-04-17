@@ -7,6 +7,7 @@ Expected impact:
   - runs table growth permanently bounded at <10K rows
 """
 
+from langgraph_agents.graph_runner import run_graph
 from langgraph_agents.graphs.plan_build_review import plan_build_review_app
 
 WORKSPACE = r"C:\Users\senki\repos\job-cannon"
@@ -141,15 +142,19 @@ def main() -> None:
     print(f"Workspace: {WORKSPACE}")
     print("Starting Phase 2: Batch dedup + runs pruning...\n")
 
-    result = plan_build_review_app.invoke({
-        "task": TASK_SUMMARY,
-        "current_plan": TASK,
-        "current_code": "",
-        "workspace_path": WORKSPACE,
-        "e2e_verdict": "",
-        "e2e_report": "",
-        "e2e_cycle": 0,
-    })
+    result = run_graph(
+        plan_build_review_app,
+        {
+            "task": TASK_SUMMARY,
+            "current_plan": TASK,
+            "current_code": "",
+            "workspace_path": WORKSPACE,
+            "e2e_verdict": "",
+            "e2e_report": "",
+            "e2e_cycle": 0,
+        },
+        graph_name="sync_opt_phase2",
+    )
 
     print("\n=== PHASE 2 COMPLETE ===")
     print(f"E2E verdict: {result.get('e2e_verdict', 'N/A')}")

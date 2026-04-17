@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 
+from langgraph_agents.graph_runner import run_graph
 from langgraph_agents.graphs.plan_build_review import plan_build_review_app
 
 PLAN_PATH = Path(r"C:\Users\senki\repos\rss-feed\docs\superpowers\plans\2026-04-01-rss-enrichment-pipeline.md")
@@ -24,15 +25,19 @@ def main() -> None:
     print(f"Workspace: {WORKSPACE}")
     print("Starting plan-build-review workflow...\n")
 
-    result = plan_build_review_app.invoke({
-        "task": TASK,
-        "current_plan": plan_text,
-        "current_code": "",
-        "workspace_path": WORKSPACE,
-        "e2e_verdict": "",
-        "e2e_report": "",
-        "e2e_cycle": 0,
-    })
+    result = run_graph(
+        plan_build_review_app,
+        {
+            "task": TASK,
+            "current_plan": plan_text,
+            "current_code": "",
+            "workspace_path": WORKSPACE,
+            "e2e_verdict": "",
+            "e2e_report": "",
+            "e2e_cycle": 0,
+        },
+        graph_name="rss_pipeline",
+    )
 
     print("\n=== WORKFLOW COMPLETE ===")
     print(f"Plan verdict passed through: {len(result.get('current_plan', ''))} chars")

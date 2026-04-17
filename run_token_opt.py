@@ -17,6 +17,7 @@ from pathlib import Path
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
 
+from langgraph_agents.graph_runner import run_graph
 from langgraph_agents.graphs.plan_build_review import plan_build_review_app
 
 WORKSPACE = str(Path.home() / ".claude")
@@ -35,15 +36,19 @@ def run_plan(label: str, plan_text: str, task_summary: str) -> dict:
     print(f"  Plan size: {len(plan_text):,} chars")
     print(f"{'='*60}\n")
 
-    result = plan_build_review_app.invoke({
-        "task": task_summary,
-        "current_plan": plan_text,
-        "current_code": "",
-        "workspace_path": WORKSPACE,
-        "e2e_verdict": "",
-        "e2e_report": "",
-        "e2e_cycle": 0,
-    })
+    result = run_graph(
+        plan_build_review_app,
+        {
+            "task": task_summary,
+            "current_plan": plan_text,
+            "current_code": "",
+            "workspace_path": WORKSPACE,
+            "e2e_verdict": "",
+            "e2e_report": "",
+            "e2e_cycle": 0,
+        },
+        graph_name=label,
+    )
 
     verdict = result.get("e2e_verdict", "N/A")
     cycles = result.get("e2e_cycle", 0)

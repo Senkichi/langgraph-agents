@@ -5,6 +5,7 @@ structural test infrastructure issues. All changes are deletions, renames, or
 mechanical restructuring — no behavioral changes.
 """
 
+from langgraph_agents.graph_runner import run_graph
 from langgraph_agents.graphs.plan_build_review import plan_build_review_app
 
 WORKSPACE = r"C:\Users\senki\repos\job-cannon"
@@ -151,15 +152,19 @@ def main() -> None:
     print(f"Workspace: {WORKSPACE}")
     print("Starting Chunk B: Delete Duplicates & Structural Cleanup...\n")
 
-    result = plan_build_review_app.invoke({
-        "task": TASK,
-        "current_plan": PLAN,
-        "current_code": "",
-        "workspace_path": WORKSPACE,
-        "e2e_verdict": "",
-        "e2e_report": "",
-        "e2e_cycle": 0,
-    })
+    result = run_graph(
+        plan_build_review_app,
+        {
+            "task": TASK,
+            "current_plan": PLAN,
+            "current_code": "",
+            "workspace_path": WORKSPACE,
+            "e2e_verdict": "",
+            "e2e_report": "",
+            "e2e_cycle": 0,
+        },
+        graph_name="test_audit_b",
+    )
 
     print("\n=== CHUNK B COMPLETE ===")
     print(f"E2E verdict: {result.get('e2e_verdict', 'N/A')}")

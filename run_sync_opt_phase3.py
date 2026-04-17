@@ -7,6 +7,7 @@ Expected impact:
   - DataForSEO's 60-120s processing time now overlaps with Gmail's 60-80s fetch time
 """
 
+from langgraph_agents.graph_runner import run_graph
 from langgraph_agents.graphs.plan_build_review import plan_build_review_app
 
 WORKSPACE = r"C:\Users\senki\repos\job-cannon"
@@ -123,7 +124,9 @@ def main() -> None:
     print(f"Workspace: {WORKSPACE}")
     print("Starting Phase 3: DataForSEO overlapped poll...\n")
 
-    result = plan_build_review_app.invoke({
+    result = run_graph(
+      plan_build_review_app,
+      {
         "task": TASK_SUMMARY,
         "current_plan": TASK,
         "current_code": "",
@@ -131,7 +134,9 @@ def main() -> None:
         "e2e_verdict": "",
         "e2e_report": "",
         "e2e_cycle": 0,
-    })
+      },
+      graph_name="sync_opt_phase3",
+    )
 
     print("\n=== PHASE 3 COMPLETE ===")
     print(f"E2E verdict: {result.get('e2e_verdict', 'N/A')}")

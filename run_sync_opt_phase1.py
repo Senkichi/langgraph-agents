@@ -8,6 +8,7 @@ Expected impact:
   - runs table growth: ~1,000/day → <20/day
 """
 
+from langgraph_agents.graph_runner import run_graph
 from langgraph_agents.graphs.plan_build_review import plan_build_review_app
 
 WORKSPACE = r"C:\Users\senki\repos\job-cannon"
@@ -135,7 +136,9 @@ def main() -> None:
     print(f"Workspace: {WORKSPACE}")
     print("Starting Phase 1: Gmail dedup + parse failure dedup...\n")
 
-    result = plan_build_review_app.invoke({
+    result = run_graph(
+      plan_build_review_app,
+      {
         "task": TASK_SUMMARY,
         "current_plan": TASK,
         "current_code": "",
@@ -143,7 +146,9 @@ def main() -> None:
         "e2e_verdict": "",
         "e2e_report": "",
         "e2e_cycle": 0,
-    })
+      },
+      graph_name="sync_opt_phase1",
+    )
 
     print("\n=== PHASE 1 COMPLETE ===")
     print(f"E2E verdict: {result.get('e2e_verdict', 'N/A')}")
