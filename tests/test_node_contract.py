@@ -10,6 +10,7 @@ from langgraph_agents.node_contract import (
     contains_verdict,
     extract_verdict_block,
     format_verdict_feedback,
+    invoke_with_verdict_retry,
     is_non_negative_int,
     is_path,
     is_verdict_value,
@@ -364,3 +365,119 @@ class TestDecoratorIntegration:
 
         result = fake_reviewer({"current_plan": "Step 1: ..."})
         assert "VERDICT:REVISE" in result["micro_feedback"]
+
+
+# ---------------------------------------------------------------------------
+# invoke_with_verdict_retry
+# ---------------------------------------------------------------------------
+
+
+class TestInvokeWithVerdictRetry:
+    def test_no_retry_when_verdict_present(self):
+        """If the initial response has a VERDICT:, return it as-is."""
+        calls = []
+
+        def fake_invoke(prompt, **kwargs):
+            calls.append(prompt)
+            return "should not be called"
+
+        result = invoke_with_verdict_retry(
+            "Analysis done.\nVERDICT:APPROVE\nREASONING:All good.",
+            fake_invoke,
+            "original prompt",
+        )
+        assert "VERDICT:APPROVE" in result
+        assert len(calls) == 0
+
+    def test_retry_called_when_verdict_missing(self):
+        """Missing VERDICT triggers a retry call to invoke_fn."""
+        calls = []
+
+        def fake_invoke(prompt, **kwargs):
+            calls.append(prompt)
+            return "VERDICT:REVISE\nREASONING:Found issues."
+
+        result = invoke_with_verdict_retry(
+            "Analysis done but no verdict.",
+            fake_invoke,
+            "original prompt",
+        )
+        assert len(calls) == 1
+        assert "VERDICT:REVISE" in result
+
+    def test_stitched_result_has_original_and_retry(self):
+        """When retry succeeds, result contains both original analysis and retry verdict."""
+        original = "I found 3 bugs in the code."
+
+        def fake_invoke(prompt, **kwargs):
+            return "VERDICT:REVISE\nREASONING:Bugs found."
+
+        result = invoke_with_verdict_retry(
+            original, fake_invoke, "prompt",
+        )
+        assert original in result
+        assert "VERDICT:REVISE" in result
+
+    def test_fallback_to_injection_when_retry_also_fails(self):
+        """If retry also lacks VERDICT:, fall back to format_verdict_feedback."""
+        def fake_invoke(prompt, **kwargs):
+            return "Still no verdict in retry either."
+
+        result = invoke_with_verdict_retry(
+            "No verdict here.", fake_invoke, "prompt",
+        )
+        assert result.startswith("VERDICT:REVISE")
+
+    def test_logs_warning_on_missing_verdict(self, caplog):
+        def fake_invoke(prompt, **kwargs):
+            return "VERDICT:APPROVE\nREASONING:OK."
+
+        with caplog.at_level(logging.WARNING, logger="langgraph_agents.node_contract"):
+            invoke_with_verdict_retry(
+                "No verdict.", fake_invoke, "prompt",
+            )
+
+        assert any("follow-up re-prompt" in r.message for r in caplog.records)
+
+    def test_logs_warning_on_retry_failure(self, caplog):
+        def fake_invoke(prompt, **kwargs):
+            return "Still no verdict."
+
+        with caplog.at_level(logging.WARNING, logger="langgraph_agents.node_contract"):
+            invoke_with_verdict_retry(
+                "No verdict.", fake_invoke, "prompt",
+            )
+
+        assert sum("VERDICT" in r.message for r in caplog.records) >= 2
+
+    def test_invoke_kwargs_forwarded_to_retry(self):
+        """Verify kwargs are forwarded to the retry invoke_fn call."""
+        captured_kwargs = {}
+
+        def fake_invoke(prompt, **kwargs):
+            captured_kwargs.update(kwargs)
+            return "VERDICT:APPROVE\nREASONING:OK."
+
+        invoke_with_verdict_retry(
+            "No verdict.", fake_invoke, "prompt",
+            system_prompt="test-system",
+            cwd="/tmp/test",
+            model="test-model",
+        )
+        assert captured_kwargs["system_prompt"] == "test-system"
+        assert captured_kwargs["cwd"] == "/tmp/test"
+        assert captured_kwargs["model"] == "test-model"
+
+    def test_allowed_verdicts_in_reprompt(self):
+        """The re-prompt should include SKIP when it's an allowed verdict."""
+        captured_prompt = []
+
+        def fake_invoke(prompt, **kwargs):
+            captured_prompt.append(prompt)
+            return "VERDICT:SKIP\nREASONING:Cannot run."
+
+        invoke_with_verdict_retry(
+            "No verdict.", fake_invoke, "prompt",
+            allowed_verdicts=("APPROVE", "REVISE", "SKIP"),
+        )
+        assert "SKIP" in captured_prompt[0]

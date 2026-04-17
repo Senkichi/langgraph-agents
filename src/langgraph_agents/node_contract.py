@@ -208,3 +208,59 @@ def format_verdict_feedback(verdict_text: str) -> str:
         )
         return f"VERDICT:REVISE\n{verdict_text}"
     return verdict_text
+
+
+def invoke_with_verdict_retry(
+    response: str,
+    invoke_fn: Callable[..., str],
+    original_prompt: str,
+    *,
+    allowed_verdicts: tuple[str, ...] = ("APPROVE", "REVISE"),
+    **invoke_kwargs: Any,
+) -> str:
+    """Ensure response contains VERDICT:; re-prompt once if missing.
+
+    Args:
+        response: The already-obtained LLM response string.
+        invoke_fn: Callable (e.g. invoke_agent) for the retry call.
+        original_prompt: The prompt that produced response, used to
+                         build the follow-up re-prompt.
+        allowed_verdicts: Tuple of accepted verdict values shown in the
+                          re-prompt and log messages.
+        **invoke_kwargs: Kwargs forwarded verbatim to invoke_fn on retry.
+
+    Returns:
+        Response string guaranteed to contain a VERDICT: line.
+    """
+    if "VERDICT:" in response:
+        return response
+
+    logger.warning(
+        "LLM response missing VERDICT: line — sending follow-up re-prompt. "
+        "Allowed: %s. Response preview: %.200s",
+        allowed_verdicts,
+        response,
+    )
+
+    followup_prompt = (
+        f"{original_prompt}\n\n"
+        f"--- Your previous response ---\n{response}\n"
+        f"--- End of previous response ---\n\n"
+        f"Your response is missing a required VERDICT: line. "
+        f"Provide ONLY your verdict block now:\n\n"
+        f"VERDICT:<{'|'.join(allowed_verdicts)}>\n"
+        f"REASONING:<1-3 sentences>\n\n"
+        f"Do not repeat your full analysis."
+    )
+
+    retry_response = invoke_fn(followup_prompt, **invoke_kwargs)
+
+    if "VERDICT:" in retry_response:
+        return f"{response}\n\n{retry_response}"
+
+    logger.warning(
+        "VERDICT re-prompt also produced no VERDICT: — falling back to injection. "
+        "Retry preview: %.200s",
+        retry_response,
+    )
+    return format_verdict_feedback(response)

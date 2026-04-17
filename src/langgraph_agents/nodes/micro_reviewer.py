@@ -7,7 +7,7 @@ from langgraph_agents.claude_cli import invoke_agent
 from langgraph_agents.config import REVIEWER_BUDGET_USD, REVIEWER_MODEL, REVIEWER_TIMEOUT
 from langgraph_agents.node_contract import (
     contains_verdict,
-    format_verdict_feedback,
+    invoke_with_verdict_retry,
     is_path,
     non_empty,
     validate_node,
@@ -79,4 +79,15 @@ def micro_review(state: BuildReviewState) -> dict:
         max_budget_usd=REVIEWER_BUDGET_USD,
         timeout=REVIEWER_TIMEOUT,
     )
-    return {"micro_feedback": format_verdict_feedback(response)}
+    return {"micro_feedback": invoke_with_verdict_retry(
+        response,
+        invoke_agent,
+        content,
+        allowed_verdicts=("APPROVE", "REVISE"),
+        system_prompt=SYSTEM_PROMPT,
+        cwd=workspace,
+        allowed_tools=REVIEW_TOOLS,
+        model=REVIEWER_MODEL,
+        max_budget_usd=REVIEWER_BUDGET_USD,
+        timeout=REVIEWER_TIMEOUT,
+    )}

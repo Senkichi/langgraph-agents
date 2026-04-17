@@ -12,7 +12,7 @@ import re
 from langgraph_agents.claude_cli import invoke_agent
 from langgraph_agents.config import E2E_BUDGET_USD, E2E_MODEL, E2E_TIMEOUT
 from langgraph_agents.node_contract import (
-    format_verdict_feedback,
+    invoke_with_verdict_retry,
     is_path,
     is_verdict_value,
     non_empty,
@@ -197,7 +197,7 @@ def e2e_test(state: ParentState) -> dict:
     workspace = state.get("workspace_path", "")
     context = _build_e2e_context(state)
 
-    response = invoke_agent(
+    raw_response = invoke_agent(
         context,
         system_prompt=SYSTEM_PROMPT,
         cwd=workspace,
@@ -207,7 +207,18 @@ def e2e_test(state: ParentState) -> dict:
         timeout=E2E_TIMEOUT,
     )
 
-    response = format_verdict_feedback(response)
+    response = invoke_with_verdict_retry(
+        raw_response,
+        invoke_agent,
+        context,
+        allowed_verdicts=("APPROVE", "REVISE", "SKIP"),
+        system_prompt=SYSTEM_PROMPT,
+        cwd=workspace,
+        allowed_tools=E2E_TOOLS,
+        model=E2E_MODEL,
+        max_budget_usd=E2E_BUDGET_USD,
+        timeout=E2E_TIMEOUT,
+    )
     verdict = parse_verdict(response, "APPROVE", "REVISE", "SKIP")
 
     return {
