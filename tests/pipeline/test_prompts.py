@@ -24,21 +24,36 @@ def test_reviser_base_discourages_blind_acceptance():
     assert "uncritically" in text or "weak signal" in text
 
 
-def test_debate_prompt_has_required_slots():
-    assert "{role}" in prompts.DEBATE_PROMPT
-    assert "{proposals_section}" in prompts.DEBATE_PROMPT
-    assert "STANCE:" in prompts.DEBATE_PROMPT
-    assert "KEY_POINT:" in prompts.DEBATE_PROMPT
+def test_debate_system_prompt_has_required_slots():
+    """The system prompt holds role + rules/format only — proposals go in the
+    opening user message so Windows CreateProcess arg limits don't bite."""
+    assert "{role}" in prompts.DEBATE_SYSTEM_PROMPT
+    assert "{proposals_section}" not in prompts.DEBATE_SYSTEM_PROMPT
+    assert "STANCE:" in prompts.DEBATE_SYSTEM_PROMPT
+    assert "KEY_POINT:" in prompts.DEBATE_SYSTEM_PROMPT
 
 
-def test_debate_prompt_formats_cleanly():
-    rendered = prompts.DEBATE_PROMPT.format(
-        role="Reviewer 1",
+def test_debate_system_prompt_fits_windows_cli_limit():
+    """Windows CreateProcess limits a single command-line arg to ~32KB. Leave
+    generous headroom — the CLI also carries cwd, model, allowed tools, etc."""
+    rendered = prompts.DEBATE_SYSTEM_PROMPT.format(role="Reviewer 1")
+    assert len(rendered.encode("utf-8")) < 4_000  # currently ~900 bytes
+
+
+def test_debate_opening_user_message_has_required_slots():
+    assert "{task}" in prompts.DEBATE_OPENING_USER_MESSAGE
+    assert "{proposals_section}" in prompts.DEBATE_OPENING_USER_MESSAGE
+
+
+def test_debate_templates_format_cleanly():
+    system = prompts.DEBATE_SYSTEM_PROMPT.format(role="Reviewer 1")
+    opening = prompts.DEBATE_OPENING_USER_MESSAGE.format(
+        task="the user task",
         proposals_section="## Proposal A\nX\n\n## Proposal B\nY",
     )
-    assert "Reviewer 1" in rendered
-    assert "Proposal A" in rendered
-    assert "{" not in rendered.replace("{", "")  # no leftover format slots
+    assert "Reviewer 1" in system
+    assert "Proposal A" in opening
+    assert "the user task" in opening
 
 
 def test_synthesis_prompt_has_debate_slot():

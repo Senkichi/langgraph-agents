@@ -32,7 +32,8 @@ from langgraph_agents.pipeline.artifacts import write_artifact
 from langgraph_agents.pipeline.budget import over_budget
 from langgraph_agents.pipeline.config import RunConfig
 from langgraph_agents.pipeline.prompts import (
-    DEBATE_PROMPT,
+    DEBATE_OPENING_USER_MESSAGE,
+    DEBATE_SYSTEM_PROMPT,
     SYNTHESIS_JUDGE_PROMPT,
 )
 from langgraph_agents.pipeline.session import AgentSession, single_query
@@ -80,7 +81,12 @@ def _render_proposals(
 async def init_debate(state: VariantBState, *, config: RunConfig) -> dict:
     """Open both debater sessions and record their opening statements.
 
-    Both debaters see the same primer structure but get their own role/draft.
+    The system prompt is kept short (role + rules + format) so the bundled
+    Claude Code CLI can receive it as a command-line argument even on
+    Windows, where CreateProcess caps at ~32KB. The drafts and task body
+    travel in the opening USER message, which goes through the API payload
+    path and is uncapped.
+
     Opening statements are produced in parallel (``asyncio.gather``) so
     neither side sees the other's statement before writing its own.
     """
@@ -96,19 +102,18 @@ async def init_debate(state: VariantBState, *, config: RunConfig) -> dict:
     left_model = config.models.debater_left or config.models.reviser_left
     right_model = config.models.debater_right or config.models.reviser_right
 
-    left_system = DEBATE_PROMPT.format(
-        role="Reviewer 1",
+    # Short system prompts — role + rules only.
+    left_system = DEBATE_SYSTEM_PROMPT.format(role="Reviewer 1")
+    right_system = DEBATE_SYSTEM_PROMPT.format(role="Reviewer 2")
+
+    # Long opening user messages — task + proposals + opening directive.
+    left_opening = DEBATE_OPENING_USER_MESSAGE.format(
+        task=state["task"],
         proposals_section=_render_proposals(left_draft, right_draft, anonymize, rng),
     )
-    right_system = DEBATE_PROMPT.format(
-        role="Reviewer 2",
+    right_opening = DEBATE_OPENING_USER_MESSAGE.format(
+        task=state["task"],
         proposals_section=_render_proposals(right_draft, left_draft, anonymize, rng),
-    )
-
-    opening_instruction = (
-        "Produce your opening statement in this debate. State your position "
-        "and the main point you intend to defend. End with the required "
-        "STANCE and KEY_POINT footer."
     )
 
     left_session = AgentSession(
@@ -127,8 +132,8 @@ async def init_debate(state: VariantBState, *, config: RunConfig) -> dict:
     registry.register(run_id, "right", right_session)
 
     (left_resp, left_cost), (right_resp, right_cost) = await asyncio.gather(
-        left_session.start(opening_instruction),
-        right_session.start(opening_instruction),
+        left_session.start(left_opening),
+        right_session.start(right_opening),
     )
 
     left_entry = _make_transcript_entry(

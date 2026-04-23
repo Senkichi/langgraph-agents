@@ -112,10 +112,9 @@ class TestSingleQuery:
 
 
 class TestAgentSessionInterface:
-    """The real SDK is a runtime dependency that isn't installed in the test
-    env. These tests cover the behaviour we can verify without it: state
-    tracking on the wrapper, the helpful error message when the SDK is
-    missing, and the lifecycle guards around send/close."""
+    """SDK is a hard dependency; these tests cover the wrapper's lifecycle
+    guards without exercising the real SDK protocol (which would spawn the
+    bundled Claude Code CLI subprocess)."""
 
     def test_constructor_records_inputs(self):
         s = AgentSession(
@@ -125,13 +124,6 @@ class TestAgentSessionInterface:
         assert s.total_cost_usd == 0.0
         assert s.session_id is None
         assert s.turn_count == 0
-
-    def test_start_raises_helpful_error_without_sdk(self):
-        """If claude-agent-sdk is not installed, the error message must tell
-        the user how to install it rather than leak a generic ImportError."""
-        s = AgentSession("x", "sys", "/tmp", "opus")
-        with pytest.raises(RuntimeError, match="uv add claude-agent-sdk"):
-            asyncio.run(s.start("hi"))
 
     def test_send_before_start_raises(self):
         s = AgentSession("x", "sys", "/tmp", "opus")

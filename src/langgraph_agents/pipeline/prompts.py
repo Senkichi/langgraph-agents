@@ -60,13 +60,11 @@ Do not mirror the critique uncritically. Accepting every point is a weak signal;
 name which points you accepted and which you did not.
 """
 
-DEBATE_PROMPT = """\
+DEBATE_SYSTEM_PROMPT = """\
 You are {role} in a structured debate about the best response to a task. Two
 independent drafts have been produced and critiqued. Your job is to engage in
 dialogue to converge on the best combined answer — or fail to converge with
 clear reasons.
-
-{proposals_section}
 
 ## Rules
 - Concrete > general. Name specific claims, not general directions.
@@ -87,6 +85,23 @@ KEY_POINT: <one-sentence crux of your current position>
 - Do not flip your position without a specific reason you can name.
 - If you find yourself reaching for harmony over substance, stop and restate
   your actual disagreement.
+"""
+
+# Proposals and task body live in the opening USER message, not the system
+# prompt. On Windows, ClaudeAgentOptions.system_prompt is passed to the
+# bundled Claude Code CLI as a command-line argument, which caps at ~32KB via
+# CreateProcess (WinError 206). Long drafts routinely exceed that. The user
+# message goes through the API payload / stdin path instead, which is uncapped.
+DEBATE_OPENING_USER_MESSAGE = """\
+## Task
+{task}
+
+{proposals_section}
+
+## Your opening
+Produce your opening statement in this debate now. State your position and
+the main point you intend to defend. End with the required STANCE and
+KEY_POINT footer.
 """
 
 SYNTHESIS_JUDGE_PROMPT = """\

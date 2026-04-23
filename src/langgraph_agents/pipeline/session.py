@@ -185,45 +185,19 @@ async def single_query(
     return response, cost
 
 
-def _extract_cost_from_usage(usage: Any) -> float:
-    """Best-effort extraction of per-turn cost from an SDK usage payload.
-
-    The SDK may expose cost as an attribute on the message, a nested usage
-    object, or as a plain field. This helper accepts any of those shapes and
-    falls back to 0.0 rather than crashing on a surprise.
-    """
-    if usage is None:
-        return 0.0
-    # Direct float/int
-    if isinstance(usage, (int, float)):
-        return float(usage)
-    # Dict-shaped
-    if isinstance(usage, dict):
-        for key in ("total_cost_usd", "cost_usd", "cost"):
-            if key in usage:
-                try:
-                    return float(usage[key])
-                except (TypeError, ValueError):
-                    continue
-        return 0.0
-    # Attribute-shaped
-    for attr in ("total_cost_usd", "cost_usd", "cost"):
-        val = getattr(usage, attr, None)
-        if val is not None:
-            try:
-                return float(val)
-            except (TypeError, ValueError):
-                continue
-    return 0.0
-
-
 class AgentSession:
     """Persistent ``claude-agent-sdk`` client wrapper for Variant B debate.
 
-    The SDK is imported lazily inside methods so this module remains
-    importable without the dependency installed (useful for Variant A smoke
-    tests and unit tests that mock this class entirely). Smoke-testing
-    Variant B requires ``uv add claude-agent-sdk`` first.
+    The SDK is a hard dependency declared in ``pyproject.toml``. Imports are
+    local to methods rather than module-level only because the SDK's CLI-bundled
+    runtime probes the environment at import time, and we don't want that probe
+    to run for Variant A tests that never instantiate a session.
+
+    Lifecycle:
+        session = AgentSession(...)
+        await session.start(first_message)    # connect + send
+        await session.send(next_message)       # subsequent turns
+        await session.close()                  # disconnect (idempotent)
     """
 
     def __init__(
@@ -246,13 +220,7 @@ class AgentSession:
 
     async def start(self, first_message: str) -> tuple[str, float]:
         """Open the SDK client and send the first message."""
-        try:
-            from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient  # noqa: WPS433
-        except ImportError as exc:
-            raise RuntimeError(
-                "AgentSession requires claude-agent-sdk. "
-                "Run `uv add claude-agent-sdk` before using Variant B."
-            ) from exc
+        from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 
         options = ClaudeAgentOptions(
             system_prompt=self.system_prompt,
@@ -293,23 +261,31 @@ class AgentSession:
         return self._turn_count
 
     async def _send(self, message: str) -> tuple[str, float]:
-        """Stream one turn, accumulate cost, return ``(response, cost_delta)``."""
+        """Stream one turn, accumulate cost, return ``(response, cost_delta)``.
+
+        SDK 0.1.x pattern: ``query()`` is a coroutine that enqueues the turn
+        (no return value worth iterating), and ``receive_response()`` is the
+        async iterator that streams ``AssistantMessage`` / ``ResultMessage``
+        back. Text lives inside ``AssistantMessage.content`` as ``TextBlock``
+        entries; cost and session id arrive on ``ResultMessage``.
+        """
+        from claude_agent_sdk import AssistantMessage, ResultMessage, TextBlock
+
         assert self._client is not None
         parts: list[str] = []
         cost_before = self._total_cost_usd
-        async for msg in self._client.query(message):
-            # Capture the final result text.
-            if getattr(msg, "subtype", None) == "success":
-                result = getattr(msg, "result", None)
-                if result:
-                    parts.append(result)
-            # Session id may arrive on any message in the stream.
-            session_id = getattr(msg, "session_id", None)
-            if session_id:
-                self._session_id = session_id
-            # Cost may arrive on usage / message meta.
-            usage = getattr(msg, "usage", None)
-            if usage is not None:
-                self._total_cost_usd += _extract_cost_from_usage(usage)
+
+        await self._client.query(message)
+        async for msg in self._client.receive_response():
+            if isinstance(msg, AssistantMessage):
+                for block in msg.content:
+                    if isinstance(block, TextBlock):
+                        parts.append(block.text)
+            elif isinstance(msg, ResultMessage):
+                if msg.session_id:
+                    self._session_id = msg.session_id
+                if msg.total_cost_usd is not None:
+                    self._total_cost_usd += float(msg.total_cost_usd)
+
         self._turn_count += 1
         return "\n".join(parts), self._total_cost_usd - cost_before

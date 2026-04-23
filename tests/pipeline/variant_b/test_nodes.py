@@ -105,17 +105,32 @@ class TestInitDebate:
         assert delta["current_speaker"] == "left"
 
     def test_falls_back_to_v1_drafts_when_v2_absent(self, cfg):
-        """Defensive: budget blown before revise → v2 missing → use v1."""
+        """Defensive: budget blown before revise → v2 missing → use v1.
+
+        Drafts live in the opening USER message (not the system prompt) to
+        stay under Windows CreateProcess arg limits; the v1 fallback must
+        reach that message.
+        """
         state = _base_state(
             cfg,
             left_draft_v1="LEFT_V1",
             right_draft_v1="RIGHT_V1",
         )
-        captured_prompts: dict[str, str] = {}
+        captured_openings: list[str] = []
 
         def make_session(name, *, system_prompt, **_kwargs):
-            captured_prompts[name] = system_prompt
-            return _make_session_mock(f"body\nSTANCE: DISAGREE\nKEY_POINT: {name}", 0.1)
+            session = _make_session_mock(
+                f"body\nSTANCE: DISAGREE\nKEY_POINT: {name}", 0.1
+            )
+            # Capture the opening user message passed to .start()
+            original_start = session.start
+
+            async def capture_start(opening):
+                captured_openings.append(opening)
+                return await original_start(opening)
+
+            session.start = capture_start
+            return session
 
         with patch(
             "langgraph_agents.pipeline.variant_b.nodes.AgentSession",
@@ -123,9 +138,10 @@ class TestInitDebate:
         ):
             asyncio.run(b_nodes.init_debate(state, config=cfg))
 
-        # Anonymisation renames drafts to "Proposal A / Proposal B" in the system
-        # prompt, so the raw v1 text must appear in at least one of them.
-        assert any("LEFT_V1" in p for p in captured_prompts.values())
+        # Anonymisation renames drafts to "Proposal A / Proposal B" in the
+        # opening message, so the raw v1 text must appear in at least one.
+        assert any("LEFT_V1" in o for o in captured_openings)
+        assert any("RIGHT_V1" in o for o in captured_openings)
 
 
 class TestDebateTurn:
