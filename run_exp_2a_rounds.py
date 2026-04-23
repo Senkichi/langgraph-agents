@@ -1,12 +1,15 @@
-"""Experiment 2A — Max Debate Rounds Sweep.
+"""Experiment 2A — Max Debate Rounds Sweep (expanded: 4 rounds × 2 models).
 
 Tests whether raising Variant B's debate round cap improves output quality
-on complex tasks, or just burns more cost. B-homo-opus (the strongest
-baseline config) at round limits {1, 3, 5, 7} on the 3 complex tasks.
+on complex tasks, disentangled from model version.
 
-Budget is raised to $10 / 3600s so the round limit is the binding
-constraint, not the budget. The 3-round config reproduces the baseline
-B-homo-opus result as a within-experiment control.
+Originally planned as 4 configs (rounds ∈ {1,3,5,7}) on one model. Expanded
+to 8 configs (4 rounds × {Opus 4.6, Opus 4.7}) because the short alias
+"opus" shifted between 001 baseline (2026-04-18, probably 4.6) and now
+(2026-04-23, 4.7). Explicit model IDs are used so the experiment is
+reproducible regardless of future alias shifts.
+
+Budget: $10 / 3600s so rounds is the binding constraint.
 
 Run:
     uv run --active python run_exp_2a_rounds.py
@@ -42,35 +45,32 @@ _COMPLEX_TASK_IDS = {
 }
 TASKS = [t for t in load_corpus(DEFAULT_CORPUS_DIR) if t.id in _COMPLEX_TASK_IDS]
 
-# Shared overrides: budget raised so rounds is the binding constraint.
 _BASE_OVERRIDES = {
     "max_total_cost_usd": 10.0,
     "max_wall_clock_seconds": 3600,
     "random_seed": 42,
 }
 
+_ROUNDS = (1, 3, 5, 7)
+_MODEL_VARIANTS = (
+    ("opus46", "claude-opus-4-6"),
+    ("opus47", "claude-opus-4-7"),
+)
 
-def _overrides_with_rounds(rounds: int) -> dict:
-    return {**_BASE_OVERRIDES, "max_debate_rounds": rounds}
+
+def _make_config(model_tag: str, model_id: str, rounds: int) -> Configuration:
+    return Configuration(
+        f"B-{model_tag}-{rounds}rnd",
+        "B",
+        models_all(model_id),
+        overrides={**_BASE_OVERRIDES, "max_debate_rounds": rounds},
+    )
 
 
 CONFIGS: list[Configuration] = [
-    Configuration(
-        "B-opus-1rnd", "B", models_all("opus"),
-        overrides=_overrides_with_rounds(1),
-    ),
-    Configuration(
-        "B-opus-3rnd", "B", models_all("opus"),
-        overrides=_overrides_with_rounds(3),
-    ),
-    Configuration(
-        "B-opus-5rnd", "B", models_all("opus"),
-        overrides=_overrides_with_rounds(5),
-    ),
-    Configuration(
-        "B-opus-7rnd", "B", models_all("opus"),
-        overrides=_overrides_with_rounds(7),
-    ),
+    _make_config(tag, model_id, rounds)
+    for tag, model_id in _MODEL_VARIANTS
+    for rounds in _ROUNDS
 ]
 
 
@@ -82,7 +82,8 @@ async def main() -> None:
     for task in TASKS:
         print(f"    task:   {task.id:<30} ({task.length_hint})")
     for cfg in CONFIGS:
-        print(f"    config: {cfg.id:<18} rounds={cfg.overrides['max_debate_rounds']}")
+        print(f"    config: {cfg.id:<18} rounds={cfg.overrides['max_debate_rounds']} "
+              f"model={cfg.models.generator_left}")
 
     results = await run_matrix(
         TASKS,
@@ -96,7 +97,7 @@ async def main() -> None:
     print(f"\n[exp-2a] finished in {elapsed:.0f}s ({elapsed/60:.1f}m)")
     print("[exp-2a] --- results ---")
     header = (
-        f"{'config':<14} {'task':<28} {'status':<8} "
+        f"{'config':<16} {'task':<28} {'status':<8} "
         f"{'cost':>8} {'wall_s':>8} {'term':<20}"
     )
     print(header)
@@ -115,16 +116,16 @@ async def main() -> None:
                 terminations.get(r.result.termination_reason, 0) + 1
             )
             print(
-                f"{r.config_id:<14} {r.task_id:<28} {r.status:<8} "
+                f"{r.config_id:<16} {r.task_id:<28} {r.status:<8} "
                 f"${r.result.total_cost_usd:>7.4f} "
                 f"{r.result.wall_clock_seconds:>8.1f} "
                 f"{r.result.termination_reason:<20}"
             )
         elif r.status == "skipped":
-            print(f"{r.config_id:<14} {r.task_id:<28} {r.status:<8} (resumed)")
+            print(f"{r.config_id:<16} {r.task_id:<28} {r.status:<8} (resumed)")
         else:
             print(
-                f"{r.config_id:<14} {r.task_id:<28} {r.status:<8} "
+                f"{r.config_id:<16} {r.task_id:<28} {r.status:<8} "
                 f"error={r.error or ''}"
             )
 
