@@ -10,6 +10,8 @@
 - `readme.md` — (no description) (~1 tok)
 - `run_companies_audit.py` — One-shot runner: invoke plan-build-review on the Companies audit & fix plan. (~1104 tok)
 - `run_dataforseo_source.py` — One-shot runner: invoke plan-build-review for DataForSEO source. (~1035 tok)
+- `run_eval.py` — Structured metrics + pairwise preference judging + report generation. (~3991 tok)
+- `run_full_matrix.py` — Full 10-config × 5-task eval sweep. (~1614 tok)
 - `run_jd_quality.py` — One-shot runner: invoke plan-build-review on the JD quality remediation plan. (~893 tok)
 - `run_rss_pipeline.py` — One-shot runner: invoke plan-build-review on the RSS enrichment pipeline plan. (~516 tok)
 - `run_sync_opt_phase1.py` — Phase 1: Gmail message-level dedup + parse failure dedup. (~1851 tok)
@@ -19,9 +21,11 @@
 - `run_test_audit_b.py` — Chunk B: Delete Duplicates & Structural Cleanup. (~2173 tok)
 - `run_test_audit_c.py` — Chunk C: Add Missing Coverage. (~2354 tok)
 - `run_thordata_source.py` — One-shot runner: invoke plan-build-review for Thordata source + scheduler change. (~1043 tok)
+- `run_tiny_matrix.py` — Tiny directional matrix: 2 configs (A vs B, same models) × 2 tasks = 4 runs. (~825 tok)
 - `run_todo_implementation.py` — !/usr/bin/env python3 (~5141 tok)
 - `run_todo_state.json` — { (~11 tok)
 - `run_token_opt.py` — Token optimization hooks — sequential execution of plans 01 → 02 → 03. (~826 tok)
+- `run_variant_a_smoke.py` — Smoke test: Variant A on the smallest sanity task with sonnet everywhere. (~663 tok)
 - `uv.lock` — version = 1 (~69432 tok)
 
 ## .planning/
@@ -52,6 +56,12 @@
 
 - `lastfailed` — {} (~1 tok)
 - `nodeids` — [ (~1844 tok)
+
+## docs/
+
+- `dual_pipeline_matrix_report.md` — *Date:** 2026-04-17 (~7412 tok)
+- `experiment_001_baseline_eval.md` — *Date**: 2026-04-18 (~5077 tok)
+- `experiment_002_plan.md` — *Date**: 2026-04-18 (~5441 tok)
 
 ## docs/superpowers/plans/
 
@@ -120,11 +130,12 @@
 
 - `__init__.py` — Dual-pipeline scaffolding — Variant A (four-phase) and Variant B (plus debate). (~71 tok)
 - `anonymize.py` — Identity-anonymisation helpers for cross-review and debate prompts. (~700 tok)
-- `artifacts.py` — Run-artifact layout on disk. (~832 tok)
+- `artifacts.py` — Run-artifact layout on disk. (~1245 tok)
 - `budget.py` — Cost and wall-clock guard rails. (~466 tok)
-- `config.py` — Run-time configuration objects for dual-pipeline runs. (~1094 tok)
-- `prompts.py` — Single source of truth for pipeline prompts. (~1514 tok)
-- `session.py` — Pipeline session primitives. (~3022 tok)
+- `config.py` — Run-time configuration objects for dual-pipeline runs. (~1194 tok)
+- `environment.py` — Environment provenance capture for run summaries. (~1093 tok)
+- `prompts.py` — Single source of truth for pipeline prompts. (~1692 tok)
+- `session.py` — Pipeline session primitives. (~2823 tok)
 - `state.py` — TypedDict state schemas for Variant A and Variant B pipelines. (~563 tok)
 
 ## src/langgraph_agents/pipeline/variant_a/
@@ -137,7 +148,7 @@
 
 - `__init__.py` — Variant B — four-phase pipeline plus debate loop between revise and synthesize. (~157 tok)
 - `graph.py` — Variant B graph builder and entry point. (~2570 tok)
-- `nodes.py` — Variant B debate-phase nodes and the debate-aware synthesis node. (~3790 tok)
+- `nodes.py` — Variant B debate-phase nodes and the debate-aware synthesis node. (~3883 tok)
 - `parsing.py` — Debate-message parsing and the stable-disagreement heuristic. (~1166 tok)
 - `registry.py` — Out-of-band registry for debate ``AgentSession`` instances. (~799 tok)
 
@@ -177,11 +188,11 @@
 
 - `__init__.py` — (no description) (~1 tok)
 - `test_anonymize.py` — Tests for anonymisation helpers — key property is reproducibility. (~806 tok)
-- `test_artifacts.py` — Tests for pipeline.artifacts — on-disk layout contract. (~1084 tok)
+- `test_artifacts.py` — Tests for pipeline.artifacts — on-disk layout contract. (~1869 tok)
 - `test_budget.py` — Tests for pipeline.budget — cost and wall-clock guards. (~950 tok)
 - `test_config.py` — Tests for pipeline.config dataclasses and helper constructors. (~1078 tok)
-- `test_prompts.py` — Smoke tests on prompt templates — catch accidental deletions or formatting drift. (~553 tok)
-- `test_session.py` — Tests for pipeline.session.single_query — mocks the subprocess CLI. (~1485 tok)
+- `test_prompts.py` — Smoke tests on prompt templates — catch accidental deletions or formatting drift. (~779 tok)
+- `test_session.py` — Tests for pipeline.session.single_query — mocks the subprocess CLI. (~1351 tok)
 - `test_state.py` — Tests for pipeline.state TypedDict contracts. (~679 tok)
 
 ## tests/pipeline/variant_a/
@@ -194,7 +205,7 @@
 
 - `__init__.py` — (no description) (~1 tok)
 - `test_graph.py` — End-to-end integration tests for Variant B. (~2132 tok)
-- `test_nodes.py` — Unit tests for Variant B debate-phase nodes. (~3054 tok)
+- `test_nodes.py` — Unit tests for Variant B debate-phase nodes. (~3210 tok)
 - `test_parsing.py` — Tests for STANCE/KEY_POINT parsing and the stable_disagreement heuristic. (~1283 tok)
 - `test_registry.py` — Tests for the debate session registry. (~806 tok)
 
