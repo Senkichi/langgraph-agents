@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+from unittest.mock import patch
 
 from langgraph_agents.pipeline.artifacts import (
+    _atomic_write_text,
     has_completed,
     load_artifact,
     load_summary,
@@ -114,3 +116,77 @@ class TestSummary:
         )
         write_summary(result)
         assert has_completed(cfg.chatroom_dir, cfg.run_id) is True
+
+    def test_summary_captures_environment_by_default(self, tmp_path):
+        cfg = _make_config(tmp_path)
+        artifacts_dir = str(run_dir(cfg.chatroom_dir, cfg.run_id))
+        result = RunResult(
+            variant="A",
+            run_id=cfg.run_id,
+            final_plan="plan",
+            total_cost_usd=0.0,
+            wall_clock_seconds=0.0,
+            termination_reason="complete",
+            artifacts_dir=artifacts_dir,
+            config=cfg,
+            environment=None,
+        )
+        write_summary(result)
+        loaded = load_summary(cfg.chatroom_dir, cfg.run_id)
+        env = loaded["environment"]
+        assert env is not None
+        # Not all probes succeed in every sandbox, but shape is fixed.
+        assert set(env.keys()) >= {
+            "git_sha",
+            "git_branch",
+            "git_dirty",
+            "claude_cli_version",
+            "claude_agent_sdk_version",
+            "python_version",
+            "platform",
+        }
+        assert env["python_version"]  # always populated
+
+    def test_summary_preserves_explicit_environment(self, tmp_path):
+        cfg = _make_config(tmp_path)
+        artifacts_dir = str(run_dir(cfg.chatroom_dir, cfg.run_id))
+        explicit = {"git_sha": "deadbeef", "python_version": "3.13.5"}
+        result = RunResult(
+            variant="A",
+            run_id=cfg.run_id,
+            final_plan="plan",
+            total_cost_usd=0.0,
+            wall_clock_seconds=0.0,
+            termination_reason="complete",
+            artifacts_dir=artifacts_dir,
+            config=cfg,
+            environment=explicit,
+        )
+        write_summary(result)
+        loaded = load_summary(cfg.chatroom_dir, cfg.run_id)
+        assert loaded["environment"] == explicit
+
+
+class TestAtomicWrite:
+    def test_write_leaves_no_tmp_file(self, tmp_path):
+        target = tmp_path / "out.txt"
+        _atomic_write_text(target, "hello")
+        assert target.read_text(encoding="utf-8") == "hello"
+        assert list(tmp_path.glob("*.tmp")) == []
+
+    def test_crash_during_rename_preserves_old_content(self, tmp_path):
+        target = tmp_path / "out.txt"
+        target.write_text("original", encoding="utf-8")
+
+        def _boom(src, dst):
+            raise RuntimeError("simulated crash during rename")
+
+        with patch("langgraph_agents.pipeline.artifacts.os.replace", _boom):
+            try:
+                _atomic_write_text(target, "new content")
+            except RuntimeError:
+                pass
+
+        # Old file intact; partial tmp cleaned up manually in a real crash,
+        # but the *target* never saw a half-write.
+        assert target.read_text(encoding="utf-8") == "original"

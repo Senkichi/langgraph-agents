@@ -18,6 +18,12 @@ Layout:
         debate_transcript.md     # Variant B only
         final_plan.md
         summary.json
+
+Writes are atomic: content is written to ``<name>.tmp`` and then renamed onto
+the final path. ``os.replace`` is POSIX + Windows atomic for same-filesystem
+renames, so a crashed run either leaves the old artifact in place or no
+artifact at all — never a half-written one. This matters because the matrix
+runner uses ``summary.json`` presence as the resume-on-crash signal.
 """
 
 from __future__ import annotations
@@ -27,6 +33,7 @@ import os
 from pathlib import Path
 from typing import Any, Mapping
 
+from . import environment as _environment
 from .config import RunConfig, RunResult
 
 
@@ -42,31 +49,56 @@ def run_dir_from_state(state: Mapping) -> Path:
     return run_dir(state["chatroom_dir"], state["run_id"])
 
 
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Write ``content`` to ``path`` atomically via a sibling ``.tmp`` file.
+
+    A sibling temp keeps the write on the same filesystem so ``os.replace``
+    is atomic. The temp is uniquified with the process id so concurrent
+    writers targeting the same path from the same parent (pytest with
+    xdist, matrix runner parallelism) don't stomp each other's tmp files.
+    """
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+    tmp.write_text(content, encoding="utf-8")
+    os.replace(tmp, path)
+
+
 def write_artifact(state: Mapping, filename: str, content: str) -> Path:
     """Write ``content`` to ``<run_dir>/<filename>`` and return the path."""
     path = run_dir_from_state(state) / filename
-    path.write_text(content, encoding="utf-8")
+    _atomic_write_text(path, content)
     return path
 
 
 def write_config(config: RunConfig) -> Path:
     """Dump the run config to ``config.json`` inside the run dir."""
     path = run_dir(config.chatroom_dir, config.run_id) / "config.json"
-    path.write_text(config.to_json(), encoding="utf-8")
+    _atomic_write_text(path, config.to_json())
     return path
 
 
 def write_task(config: RunConfig) -> Path:
     """Dump the task text to ``task.md`` inside the run dir."""
     path = run_dir(config.chatroom_dir, config.run_id) / "task.md"
-    path.write_text(config.task, encoding="utf-8")
+    _atomic_write_text(path, config.task)
     return path
 
 
 def write_summary(result: RunResult) -> Path:
-    """Dump the final run result to ``summary.json``. Its presence marks completion."""
+    """Dump the final run result to ``summary.json``. Its presence marks completion.
+
+    Written last and atomically — if the process crashes before this call,
+    the matrix runner will re-execute the run on resume.
+
+    Environment provenance (git sha, CLI/SDK versions) is captured here if
+    the caller didn't already supply it, so every summary on disk carries
+    enough metadata to pair-check against a later code revision.
+    """
+    if result.environment is None:
+        import dataclasses
+
+        result = dataclasses.replace(result, environment=_environment.capture())
     path = Path(result.artifacts_dir) / "summary.json"
-    path.write_text(result.to_json(), encoding="utf-8")
+    _atomic_write_text(path, result.to_json())
     return path
 
 

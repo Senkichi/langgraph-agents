@@ -68,7 +68,13 @@ class RunConfig:
 
 @dataclass(frozen=True)
 class RunResult:
-    """Summary a completed run writes to `<run_dir>/summary.json`."""
+    """Summary a completed run writes to `<run_dir>/summary.json`.
+
+    ``environment`` is an optional provenance dict (git sha, CLI version, SDK
+    version, python version). Filled in automatically by ``write_summary``
+    when not supplied explicitly; kept on the dataclass so tests can inject a
+    deterministic value.
+    """
 
     variant: Variant
     run_id: str
@@ -78,6 +84,7 @@ class RunResult:
     termination_reason: str
     artifacts_dir: str
     config: RunConfig
+    environment: dict[str, Any] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -89,6 +96,7 @@ class RunResult:
             "termination_reason": self.termination_reason,
             "artifacts_dir": self.artifacts_dir,
             "config": self.config.to_dict(),
+            "environment": self.environment,
         }
 
     def to_json(self) -> str:
