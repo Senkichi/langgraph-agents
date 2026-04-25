@@ -2,7 +2,7 @@
 
 **Date**: 2026-04-24
 **Author**: Senkichi (with Claude Opus 4.7)
-**Status**: Complete (with caveat — see §10.1)
+**Status**: Complete
 **Prior work**: [`docs/experiment_001_baseline_eval.md`](experiment_001_baseline_eval.md)
 **Plan**: [`docs/experiment_002_plan.md`](experiment_002_plan.md)
 
@@ -191,27 +191,27 @@ Three configurations on three complex tasks (9 runs):
 
 The two homogeneous configurations are parameter-identical to `B-opus46-3rnd` and `B-opus47-3rnd` from 2A; they are re-run here so the eval pipeline stays self-contained.
 
-### 5.2 Execution Notes — Eval Underpowered
+### 5.2 Execution Notes
 
-The 2B eval was interrupted by a hard organization-level monthly usage cap ("You've hit your org's monthly usage limit"). 7 of 18 expected judgments completed before the cap engaged. The cap does not reset until the next monthly billing cycle.
+The 2B eval was initially interrupted by a hard organization-level monthly usage cap ("You've hit your org's monthly usage limit") after 7 of 18 expected judgments. The remaining 11 were collected when the cap reset; full 18/18 dataset reflected in the results below.
 
-The 7 judgments are unanimously consistent within each pair. With 2–3 judgments per pair direction (rather than 6), the directional signal is decisive but statistical power is reduced. The win-matrix values below should be read as "100% of judged pairs agreed" rather than "100% of all pairs would agree."
-
-| Pair | Judgments collected / expected | Outcome (unanimous in collected sample) |
+| Pair | Judgments | Outcome |
 |---|---|---|
-| `B-het-opus46-opus47` vs `B-homo-opus46` | 3 / 6 | het wins |
-| `B-het-opus46-opus47` vs `B-homo-opus47` | 2 / 6 | homo-47 wins |
-| `B-homo-opus46` vs `B-homo-opus47` | 2 / 6 | homo-47 wins |
+| `B-het-opus46-opus47` vs `B-homo-opus46` | 6 / 6 | het wins all |
+| `B-het-opus46-opus47` vs `B-homo-opus47` | 6 / 6 | homo-47 wins 5, het wins 1 |
+| `B-homo-opus46` vs `B-homo-opus47` | 6 / 6 | homo-47 wins all |
 
 ### 5.3 Results — Strict Ordering
 
 | | B-het-46-47 | B-homo-46 | B-homo-47 |
 |---|---|---|---|
-| **B-het-opus46-opus47** | — | 1.00 | 0.00 |
+| **B-het-opus46-opus47** | — | 1.00 | 0.17 |
 | **B-homo-opus46** | 0.00 | — | 0.00 |
-| **B-homo-opus47** | 1.00 | 1.00 | — |
+| **B-homo-opus47** | 0.83 | 1.00 | — |
 
 Strict ordering: **`B-homo-opus47` > `B-het-opus46-opus47` > `B-homo-opus46`**.
+
+The cross-generation het is not entirely shut out by strong-side homo (it wins 1 of 6 judgments vs `B-homo-opus47`), but the directional signal is unambiguous. `B-homo-opus46` loses every single judgment in the experiment.
 
 ### 5.4 Interpretation — Diversity Hypothesis Refuted at This Boundary
 
@@ -274,19 +274,17 @@ These should be re-validated at the next model upgrade (Finding 5).
 
 ## 8. Limitations
 
-1. **2B eval is underpowered.** 7 of 18 planned judgments completed before the monthly usage cap engaged. The remaining 11 should be collected when the cap resets and the report regenerated.
+1. **Three complex tasks is a small corpus.** The 001 limitation persists. Confidence intervals on win rates are wide. A 1.00 win rate from 3 judgments and a 1.00 win rate from 30 judgments are not the same evidence.
 
-2. **Three complex tasks is a small corpus.** The 001 limitation persists. Confidence intervals on win rates are wide. A 1.00 win rate from 3 judgments and a 1.00 win rate from 30 judgments are not the same evidence.
+2. **Single-run-per-config-task.** No variance estimate from repeated trials. Random seed was held at 42 throughout, but model temperature and CLI-side non-determinism mean the same config-task pair can produce different outputs on re-run.
 
-3. **Single-run-per-config-task.** No variance estimate from repeated trials. Random seed was held at 42 throughout, but model temperature and CLI-side non-determinism mean the same config-task pair can produce different outputs on re-run.
+3. **LLM-as-judge homogeneity.** Both judges are Claude. A cross-family judge (GPT-4, Gemini) would test for self-preference bias, particularly for Findings 1 and 4 where 4.7 dominates 4.6 (same family) and for the anonymization weak signal.
 
-4. **LLM-as-judge homogeneity.** Both judges are Claude. A cross-family judge (GPT-4, Gemini) would test for self-preference bias, particularly for Findings 1 and 4 where 4.7 dominates 4.6 (same family) and for the anonymization weak signal.
+4. **2A confounds rounds with budget headroom.** Higher round caps had higher cost / wall budgets ($10 / 3600s) than 001's defaults ($5 / 2400s). The within-experiment comparison is clean (all 2A configs share the same budget), but 2A → 001 comparison is not.
 
-5. **2A confounds rounds with budget headroom.** Higher round caps had higher cost / wall budgets ($10 / 3600s) than 001's defaults ($5 / 2400s). The within-experiment comparison is clean (all 2A configs share the same budget), but 2A → 001 comparison is not.
+5. **Keyword-coverage metric is misleading.** Section 6.1 Finding 2: the metric does not track quality at the model-version boundary. Future work should not use it as a primary quality proxy without supplementing with judged outcomes.
 
-6. **Keyword-coverage metric is misleading.** Section 6.1 Finding 2: the metric does not track quality at the model-version boundary. Future work should not use it as a primary quality proxy without supplementing with judged outcomes.
-
-7. **No A-vs-B comparison in 002.** All three experiments are within Variant B. The `Variant A vs Variant B` block in each report shows 0% / 0% because no cross-variant judgments exist; this is cosmetic and noted here so the report files are not misread.
+6. **No A-vs-B comparison in 002.** All three experiments are within Variant B. The `Variant A vs Variant B` block in each report shows 0% / 0% because no cross-variant judgments exist; this is cosmetic and noted here so the report files are not misread.
 
 ---
 
@@ -294,21 +292,19 @@ These should be re-validated at the next model upgrade (Finding 5).
 
 In rough priority order, lowest-effort first:
 
-1. **Resume 2B eval when monthly cap resets.** 11 judgments outstanding. Single command (`uv run --active python run_eval_2b.py`) — `judgments.jsonl` is append-only and the resume logic skips completed work. Cost: ~$3–5.
+1. **Re-run 001 baseline with `claude-opus-4-7` explicit IDs.** Current 001 results are on aliases that have since shifted, and we have no environment provenance on those runs to confirm what model actually ran. A fresh run of the 001 matrix with explicit 4.7 IDs would let us cleanly compare "what 001 found in 2026-04-18" against "what 001 finds today." Cost: ~$60. Time: ~2 hours wall.
 
-2. **Re-run 001 baseline with `claude-opus-4-7` explicit IDs.** Current 001 results are on aliases that have since shifted, and we have no environment provenance on those runs to confirm what model actually ran. A fresh run of the 001 matrix with explicit 4.7 IDs would let us cleanly compare "what 001 found in 2026-04-18" against "what 001 finds today." Cost: ~$60. Time: ~2 hours wall.
+2. **Test asymmetric model-role configs.** 2B mixed 4.6 and 4.7 by side (left vs right). The diversity hypothesis might still hold if mixing is by *role*: 4.7 generators with 4.6 critics, or 4.6 generators with 4.7 synthesizer. This tests whether model differences are productive when the roles structurally differ. 4–6 configs, 12–18 runs, ~$25.
 
-3. **Test asymmetric model-role configs.** 2B mixed 4.6 and 4.7 by side (left vs right). The diversity hypothesis might still hold if mixing is by *role*: 4.7 generators with 4.6 critics, or 4.6 generators with 4.7 synthesizer. This tests whether model differences are productive when the roles structurally differ. 4–6 configs, 12–18 runs, ~$25.
+3. **Extend 2E to N≥30 judgments.** The 0.58 vs 0.42 anonymization signal is the lowest-confidence finding in this report. Re-run with two more random seeds (or scale to 6 tasks if/when the corpus is expanded) to confirm or refute. Cost: ~$10.
 
-4. **Extend 2E to N≥30 judgments.** The 0.58 vs 0.42 anonymization signal is the lowest-confidence finding in this report. Re-run with two more random seeds (or scale to 6 tasks if/when the corpus is expanded) to confirm or refute. Cost: ~$10.
+4. **Implement Experiment 2C (reasoning effort).** The plan's 2C requires threading a `reasoning_effort` parameter through `RunConfig` / `ModelConfig` / `session.py` / both variants' node modules. Asymmetric effort (high on critics + debaters + synthesizer, low on generators) is the most interesting hypothesis. ~1–2 sessions of code work + ~$50 in matrix execution.
 
-5. **Implement Experiment 2C (reasoning effort).** The plan's 2C requires threading a `reasoning_effort` parameter through `RunConfig` / `ModelConfig` / `session.py` / both variants' node modules. Asymmetric effort (high on critics + debaters + synthesizer, low on generators) is the most interesting hypothesis. ~1–2 sessions of code work + ~$50 in matrix execution.
+5. **Implement Experiment 2D (debate prompt structure).** Variants D2 (objection-focused, structured turn format) and D3 (convergence-pressure with mandatory concessions) become more interesting given Finding 3: the uncanny-valley issue at 3 rounds is exactly the kind of problem D3 is designed to fix. ~1 session of code + ~$30.
 
-6. **Implement Experiment 2D (debate prompt structure).** Variants D2 (objection-focused, structured turn format) and D3 (convergence-pressure with mandatory concessions) become more interesting given Finding 3: the uncanny-valley issue at 3 rounds is exactly the kind of problem D3 is designed to fix. ~1 session of code + ~$30.
+6. **Expand the task corpus.** Most of the 002 limitations would be partially addressed by adding 5–10 more complex tasks across different domains (performance tuning, API design review, incident postmortem, threat modeling). This is the single most impactful methodological improvement available.
 
-7. **Expand the task corpus.** All five 002 limitations would be partially addressed by adding 5–10 more complex tasks across different domains (performance tuning, API design review, incident postmortem, threat modeling). This is the single most impactful methodological improvement available.
-
-8. **Revisit Variant A on Opus 4.7.** All of 002 is Variant B. The 001 finding that B beats A by 15 points on complex tasks was on the older model. If 4.7 produces strong direct synthesis, the gap may have narrowed — and the cost premium of B's debate loop may not be worth it on the new flagship.
+7. **Revisit Variant A on Opus 4.7.** All of 002 is Variant B. The 001 finding that B beats A by 15 points on complex tasks was on the older model. If 4.7 produces strong direct synthesis, the gap may have narrowed — and the cost premium of B's debate loop may not be worth it on the new flagship.
 
 ### 9.1 Anti-recommendation
 
@@ -328,7 +324,7 @@ logs/eval_2a/            # 167 judgments + report.md
 logs/matrix_2e_anon/     # 6 runs
 logs/eval_2e/            # 6 judgments + report.md
 logs/matrix_2b_crossgen/ # 9 runs
-logs/eval_2b/            # 7/18 judgments + report.md (PARTIAL — see §10.2)
+logs/eval_2b/            # 18 judgments + report.md
 ```
 
 Each `summary.json` carries an `environment` block recording git_sha, git_dirty, claude_cli_version (2.1.118), claude_agent_sdk_version (0.1.62), python_version (3.13.5), and platform (Windows 11). All runs in 002 were executed against git_sha `9ef7a87` or later, all on a clean tree (`git_dirty: false`) except a handful made before the smoke-test script was committed.
@@ -337,7 +333,6 @@ Driver scripts: `run_exp_2a_rounds.py`, `run_exp_2e_anon.py`, `run_exp_2b_crossg
 
 ### 10.2 Outstanding Work
 
-- 2B: 11 of 18 judgments outstanding (see §5.2). Re-run `run_eval_2b.py` after monthly limit resets.
 - The cosmetic A-vs-B block in all three eval reports is empty by construction; not worth fixing unless the report becomes externally consumed.
 
 ### 10.3 Cost Summary
@@ -346,7 +341,7 @@ Driver scripts: `run_exp_2a_rounds.py`, `run_exp_2e_anon.py`, `run_exp_2b_crossg
 |---|---|---|---|---|
 | 2A | 24 | $74.78 | 167 (2-pass × 84 pairs ≈ 334 calls) | ~$50 |
 | 2E | 6 | $22.44 | 6 (12 calls) | ~$2 |
-| 2B | 9 | $27.78 | 7 of 18 (~14 calls) | ~$2 |
+| 2B | 9 | $27.78 | 18 (36 calls, across 2 billing windows) | ~$5 |
 | **Total (002)** | **39** | **$125.00** | **180** | **~$54** |
 
 For comparison, Experiment 001 totaled $58.71 in matrix cost across 50 runs and ~$50 in eval calls across 450 judgments. Experiment 002 is ~3× the per-run cost (one fewer task, but Opus 4.7's higher per-run cost), and ~10× lower judgment density (180 vs 450 judgments).
