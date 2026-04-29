@@ -351,6 +351,24 @@ Updated for the locked corpus size of **9 tasks** (3 existing + 6 new). Eval cal
 
 **Locked judge-fixture policy: permanent-if-biased.** Phase 0.1 uses GPT-4o as a one-shot sanity check ($8). If Phase 0.1 returns "robust" (cross-family judge agrees with Claude judges), GPT-4o stays one-shot — total real cash is **$8**. If Phase 0.1 returns "inflated" or "refuted", GPT-4o is upgraded to a permanent third judge across Phases 2–3, adding **~$30–50 real cash** (estimated 100–170 cross-family judgments at $0.30 each). Total worst case: **~$58 real cash**.
 
+### 10.1 Addendum (2026-04-29) — Phase 1.1 smoke-derived cost anchor
+
+The Phase 1.1 smoke (Variant A + Opus 4.7, all 6 new complex tasks; logs in `logs/smoke_phase_1_1/`) produced two natural-completion runs and four budget-or-wall-capped runs. The two natural completions cost **$2.18 and $2.70** (mean **$2.44/run**). The cost-capped runs sat at **$2.43–$2.95** with the cap binding before synthesis finished, so true natural-completion cost is at or above $2.44 — the per-run figure originally cited in §10 (anchored on 002 §10.3) is **2.4× too low** for current 4.7 behaviour on the expanded corpus.
+
+**Revised Phase 2.1 imputed estimate** (4 configs × 9 tasks = 36 runs):
+
+| | §10 original | Smoke-revised |
+|---|---|---|
+| 2× Variant A × 9 = 18 runs | ~$18 (@$1) | **~$45 (@$2.50)** |
+| 2× Variant B × 9 = 18 runs | ~$72 (@$4) | **~$90+** (B-on-4.7 estimate likely also low; defer until Phase 2.1 first-config smoke confirms) |
+| **Phase 2.1 imputed total** | **~$82** | **~$135+** |
+
+Real cash unchanged ($0 on subscription). The substantive consequence is org-cap timing: the Phase 1.1 smoke alone consumed enough capacity to trip the daily cap, so Phase 2.1 needs to land early in a billing window with no other heavy phases competing. Re-affirms the §7 risk-register mitigation but with sharper numbers.
+
+**Cost-cap policy revised: removed.** Per-run `max_total_cost_usd` overrides are dropped from `run_smoke_phase_1_1.py` and should be dropped from Phase 2.1 drivers. Rationale: real cash is $0; cost caps only truncate runs before synthesis finishes, producing artificially-clipped final plans that bias eval against the pipeline. The pipeline's wall cap remains the runaway-protection mechanism. **Recommended wall cap for Phase 2.1: 1200s** (the longest natural-completion smoke run was 829s; 1200s gives ~45% headroom and stays well clear of the 1800s default).
+
+**Phase 1.1 §4.1 verdict: cleared.** All 6 new tasks parse cleanly, execute end-to-end on Variant A + 4.7, and produce final plans of 19,752–37,994 chars. Concept-leak rates on new rubrics are 0–18%, at or below the existing-corpus baseline of 31–44%.
+
 ---
 
 ## 11. Locked decisions
