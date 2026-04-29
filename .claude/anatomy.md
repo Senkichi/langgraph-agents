@@ -6,7 +6,7 @@
 - `.python-version` — 3.13 (~1 tok)
 - `=8.0` — (no description) (~1 tok)
 - `plan.md` — --- (~4564 tok)
-- `pyproject.toml` — [build-system] (~158 tok)
+- `pyproject.toml` — Cross-family judge for experiment 003 Phase 0.1 (judge bias sanity check). (~237 tok)
 - `readme.md` — (no description) (~1 tok)
 - `run_companies_audit.py` — One-shot runner: invoke plan-build-review on the Companies audit & fix plan. (~1104 tok)
 - `run_dataforseo_source.py` — One-shot runner: invoke plan-build-review for DataForSEO source. (~1035 tok)
@@ -14,6 +14,7 @@
 - `run_eval_2a.py` — Experiment 2A eval — same pipeline as run_eval.py, pointed at 2A dirs. (~904 tok)
 - `run_eval_2b.py` — Experiment 2B eval — cross-generation 4.6 × 4.7. (~723 tok)
 - `run_eval_2e.py` — Experiment 2E eval — anonymization toggle. (~720 tok)
+- `run_eval_judge_sanity.py` — Experiment 003 Phase 0.1 — judge self-preference bias sanity check. (~4583 tok)
 - `run_exp_2a_rounds.py` — Experiment 2A — Max Debate Rounds Sweep (expanded: 4 rounds × 2 models). (~1518 tok)
 - `run_exp_2b_crossgen.py` — Experiment 2B — Cross-Generation Heterogeneous (Opus 4.6 × 4.7). (~1399 tok)
 - `run_exp_2e_anon.py` — Experiment 2E — Anonymization Toggle. (~1116 tok)
@@ -70,11 +71,18 @@
 - `experiment_001_baseline_eval.md` — *Date**: 2026-04-18 (~5077 tok)
 - `experiment_002_plan.md` — *Date**: 2026-04-18 (~5441 tok)
 - `experiment_002_results.md` — *Date**: 2026-04-24 (~6526 tok)
+- `experiment_003_phase_0_1_results.md` — *Date**: 2026-04-29 (~2021 tok)
+- `experiment_003_phase_0_3_power.md` — *Date**: 2026-04-29 (~453 tok)
 - `experiment_003_plan.md` — *Date**: 2026-04-26 (~7545 tok)
+- `spike_reasoning_effort.md` — *Date**: 2026-04-29 (~738 tok)
 
 ## docs/superpowers/plans/
 
 - `2026-04-05-langgraph-improvements.md` — > **For agentic workers:** REQUIRED: Use superpowers:subagent-driven-development (if subagents av... (~15869 tok)
+
+## scripts/
+
+- `probe_deepseek_response.py` — One-shot probe: what does deepseek-v4-pro return on a tiny judge-format prompt? (~551 tok)
 
 ## src/langgraph_agents/
 
