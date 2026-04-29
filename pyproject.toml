@@ -18,6 +18,10 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.0",
+    # Cross-family judge for experiment 003 Phase 0.1 (judge bias sanity check).
+    # Pinned to 1.x because the v2 surface — when it ships — may break the
+    # OpenAI() / chat.completions.create() call shape used in run_eval_judge_sanity.py.
+    "openai>=1.50,<2",
 ]
 
 [tool.hatch.build.targets.wheel]
