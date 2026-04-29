@@ -103,6 +103,7 @@ class TraceEvent:
 class GraphStartEvent(TraceEvent):
     event_type: str = "graph_start"
     input_field_sizes: dict[str, int] = field(default_factory=dict)
+    environment: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -184,10 +185,12 @@ class GraphTracer:
         graph_name: str,
         log_dir: Path,
         trace_level: str = "debug",
+        capture_environment: bool = True,
     ) -> None:
         self.run_id = run_id
         self._trace_level = trace_level
         self._level_num = _LEVEL_ORDER.get(trace_level, 2)
+        self._capture_environment = capture_environment
         self._lock = threading.Lock()
         self._graph_stack: list[str] = [graph_name]
         self._start_time: float = time.perf_counter()
@@ -230,7 +233,18 @@ class GraphTracer:
     def graph_start(self, inputs: dict) -> None:
         sizes = _field_sizes(inputs) if self._should_emit("state") else {}
         self._start_time = time.perf_counter()
-        self.emit(GraphStartEvent(input_field_sizes=sizes))
+        env: dict[str, Any] | None = None
+        if self._capture_environment:
+            try:
+                from langgraph_agents.environment import capture as _capture_env
+
+                env = _capture_env()
+            except Exception as exc:
+                # Environment capture is best-effort: never fail a run because
+                # git is missing or the SDK probe blew up.
+                logger.debug("environment capture failed: %s", exc)
+                env = None
+        self.emit(GraphStartEvent(input_field_sizes=sizes, environment=env))
 
     def graph_end(self, duration_ms: float) -> dict:
         summary = self._build_summary(duration_ms)

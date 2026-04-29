@@ -11,6 +11,12 @@
 - `run_companies_audit.py` — One-shot runner: invoke plan-build-review on the Companies audit & fix plan. (~1104 tok)
 - `run_dataforseo_source.py` — One-shot runner: invoke plan-build-review for DataForSEO source. (~1035 tok)
 - `run_eval.py` — Structured metrics + pairwise preference judging + report generation. (~3991 tok)
+- `run_eval_2a.py` — Experiment 2A eval — same pipeline as run_eval.py, pointed at 2A dirs. (~904 tok)
+- `run_eval_2b.py` — Experiment 2B eval — cross-generation 4.6 × 4.7. (~723 tok)
+- `run_eval_2e.py` — Experiment 2E eval — anonymization toggle. (~720 tok)
+- `run_exp_2a_rounds.py` — Experiment 2A — Max Debate Rounds Sweep (expanded: 4 rounds × 2 models). (~1518 tok)
+- `run_exp_2b_crossgen.py` — Experiment 2B — Cross-Generation Heterogeneous (Opus 4.6 × 4.7). (~1399 tok)
+- `run_exp_2e_anon.py` — Experiment 2E — Anonymization Toggle. (~1116 tok)
 - `run_full_matrix.py` — Full 10-config × 5-task eval sweep. (~1614 tok)
 - `run_jd_quality.py` — One-shot runner: invoke plan-build-review on the JD quality remediation plan. (~893 tok)
 - `run_rss_pipeline.py` — One-shot runner: invoke plan-build-review on the RSS enrichment pipeline plan. (~516 tok)
@@ -26,6 +32,7 @@
 - `run_todo_state.json` — { (~11 tok)
 - `run_token_opt.py` — Token optimization hooks — sequential execution of plans 01 → 02 → 03. (~826 tok)
 - `run_variant_a_smoke.py` — Smoke test: Variant A on the smallest sanity task with sonnet everywhere. (~663 tok)
+- `run_variant_b_smoke.py` — Smoke test: Variant B on a complex task, opus homogeneous, 1-round debate. (~975 tok)
 - `uv.lock` — version = 1 (~69432 tok)
 
 ## .planning/
@@ -62,6 +69,8 @@
 - `dual_pipeline_matrix_report.md` — *Date:** 2026-04-17 (~7412 tok)
 - `experiment_001_baseline_eval.md` — *Date**: 2026-04-18 (~5077 tok)
 - `experiment_002_plan.md` — *Date**: 2026-04-18 (~5441 tok)
+- `experiment_002_results.md` — *Date**: 2026-04-24 (~6526 tok)
+- `experiment_003_plan.md` — *Date**: 2026-04-26 (~7545 tok)
 
 ## docs/superpowers/plans/
 
@@ -71,14 +80,15 @@
 
 - `__init__.py` — (no description) (~1 tok)
 - `claude_cli.py` — Wrapper around the `claude` CLI for running prompts via Claude Code subscription. (~1995 tok)
-- `config.py` — Central configuration for model selection and execution parameters. (~527 tok)
+- `config.py` — Central configuration for model selection and execution parameters. (~1031 tok)
+- `environment.py` — Environment provenance capture. (~1225 tok)
 - `evaluate_resumes.py` — Evaluate resume-engine output by comparing generated vs submitted versions. (~2583 tok)
-- `graph_runner.py` — Streaming and synchronous runners for LangGraph workflows. (~1353 tok)
+- `graph_runner.py` — Streaming and synchronous runners for LangGraph workflows. (~1458 tok)
 - `llm.py` — import os (~254 tok)
 - `models.py` — from typing import Literal (~601 tok)
 - `node_contract.py` — Node contract enforcement: pre/post-condition validation for graph nodes. (~2059 tok)
 - `state.py` — from typing_extensions import TypedDict (~969 tok)
-- `tracer.py` — Graph execution tracer: structured JSONL logging for observability. (~3762 tok)
+- `tracer.py` — Graph execution tracer: structured JSONL logging for observability. (~3946 tok)
 
 ## src/langgraph_agents/eval/
 
@@ -133,7 +143,7 @@
 - `artifacts.py` — Run-artifact layout on disk. (~1245 tok)
 - `budget.py` — Cost and wall-clock guard rails. (~466 tok)
 - `config.py` — Run-time configuration objects for dual-pipeline runs. (~1194 tok)
-- `environment.py` — Environment provenance capture for run summaries. (~1093 tok)
+- `environment.py` — Backward-compatible re-export of the package-level environment module. (~160 tok)
 - `prompts.py` — Single source of truth for pipeline prompts. (~1692 tok)
 - `session.py` — Pipeline session primitives. (~2823 tok)
 - `state.py` — TypedDict state schemas for Variant A and Variant B pipelines. (~563 tok)
@@ -162,7 +172,7 @@
 
 - `__init__.py` — (no description) (~1 tok)
 - `test_build_review.py` — from langgraph.graph import END (~2384 tok)
-- `test_config.py` — Tests that config module reads env vars correctly. (~200 tok)
+- `test_config.py` — Tests that config module reads env vars correctly. (~555 tok)
 - `test_e2e_tester.py` — from unittest.mock import patch (~3559 tok)
 - `test_graph_runner.py` — Tests for graph_runner: streaming and synchronous runners. (~493 tok)
 - `test_models.py` — import pytest (~489 tok)
@@ -173,7 +183,7 @@
 - `test_plan_review.py` — from langgraph.graph import END (~582 tok)
 - `test_prompt_build_review.py` — from langgraph.graph import END (~1076 tok)
 - `test_prompt_workflow.py` — from langgraph_agents.graphs.prompt_workflow import build_prompt_workflow_graph (~312 tok)
-- `test_tracer.py` — Tests for the tracer module: GraphTracer, traced_route, context vars. (~2714 tok)
+- `test_tracer.py` — Tests for the tracer module: GraphTracer, traced_route, context vars. (~3297 tok)
 
 ## tests/eval/
 

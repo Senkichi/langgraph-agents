@@ -29,7 +29,10 @@ def run_graph(
     """Synchronous runner that invokes the graph and returns the final state.
 
     When tracing is enabled, creates a ``GraphTracer``, sets it in context,
-    and prints a summary on completion.
+    and prints a summary on completion. The tracer captures git/CLI/SDK
+    provenance into the ``graph_start`` event so trace logs can be paired
+    against the exact code revision that produced them — same shape as
+    the dual-pipeline ``summary.json`` block.
     """
     from langgraph_agents.config import TRACE_DIR, TRACE_ENABLED, TRACE_LEVEL
     from langgraph_agents.tracer import GraphTracer, set_tracer
@@ -86,6 +89,8 @@ async def stream_graph(
 
     When tracing is enabled, creates a ``GraphTracer`` and emits events
     alongside the stream. Prints a summary after iteration completes.
+    The first emitted event (``graph_start``) carries an ``environment``
+    block with git/CLI/SDK provenance — see ``run_graph`` docstring.
     """
     from langgraph_agents.config import TRACE_DIR, TRACE_ENABLED, TRACE_LEVEL
     from langgraph_agents.tracer import GraphTracer, set_tracer

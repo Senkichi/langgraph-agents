@@ -23,10 +23,60 @@ from langgraph_agents.tracer import (
 
 class TestGraphTracer:
     def test_creates_log_file(self, tmp_path):
-        tracer = GraphTracer("run-1", "test_graph", tmp_path)
+        tracer = GraphTracer("run-1", "test_graph", tmp_path, capture_environment=False)
         tracer.graph_start({})
         tracer.graph_end(100.0)
         assert list(tmp_path.glob("*.jsonl"))
+
+    def test_graph_start_captures_environment_by_default(self, tmp_path, monkeypatch):
+        """graph_start emits an environment block paired with run provenance."""
+        # Use a stub capture so the test doesn't shell out to git/claude.
+        sentinel = {
+            "git_sha": "deadbeef",
+            "git_branch": "master",
+            "git_dirty": False,
+            "claude_cli_version": "2.1.118",
+            "claude_agent_sdk_version": "0.1.62",
+            "python_version": "3.13.5 (CPython, win32)",
+            "platform": "Windows-11",
+        }
+        import langgraph_agents.environment as env_mod
+
+        monkeypatch.setattr(env_mod, "capture", lambda: sentinel)
+
+        tracer = GraphTracer("run-1", "g", tmp_path)
+        tracer.graph_start({})
+        tracer.graph_end(0)
+
+        events = _read_events(tracer.log_path)
+        start = next(e for e in events if e["event_type"] == "graph_start")
+        assert start["environment"] == sentinel
+
+    def test_graph_start_omits_environment_when_disabled(self, tmp_path):
+        tracer = GraphTracer("run-1", "g", tmp_path, capture_environment=False)
+        tracer.graph_start({})
+        tracer.graph_end(0)
+
+        events = _read_events(tracer.log_path)
+        start = next(e for e in events if e["event_type"] == "graph_start")
+        assert start["environment"] is None
+
+    def test_graph_start_environment_failure_is_swallowed(self, tmp_path, monkeypatch):
+        """Env capture must never fail a run — git missing, SDK probe blew up, etc."""
+        import langgraph_agents.environment as env_mod
+
+        def _boom():
+            raise RuntimeError("git not on PATH")
+
+        monkeypatch.setattr(env_mod, "capture", _boom)
+
+        tracer = GraphTracer("run-1", "g", tmp_path)
+        tracer.graph_start({})  # must not raise
+        tracer.graph_end(0)
+
+        events = _read_events(tracer.log_path)
+        start = next(e for e in events if e["event_type"] == "graph_start")
+        assert start["environment"] is None
 
     def test_jsonl_format(self, tmp_path):
         tracer = GraphTracer("run-1", "test_graph", tmp_path)
