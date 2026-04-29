@@ -155,3 +155,55 @@ class TestJudgeMulti:
         assert len(outcomes) == 2
         assert outcomes[0].preferred == "A"
         assert outcomes[1].position_bias_detected is True
+
+
+class TestJudgeSingleDispatch:
+    """``judge_single`` routes Claude IDs through ``single_query`` and OpenAI-
+    compatible IDs through ``query_openai_compatible``. The two paths must not
+    bleed into each other — patching one and exercising the other model class
+    confirms the dispatch is doing real work.
+    """
+
+    def test_claude_id_uses_single_query_not_openai(self):
+        single_q_mock = AsyncMock(return_value=(_judge_text("X"), 0.0))
+        openai_mock = AsyncMock(return_value=_judge_text("Y"))
+        with (
+            patch("langgraph_agents.eval.judge_pairwise.single_query", single_q_mock),
+            patch("langgraph_agents.eval.judge_pairwise.query_openai_compatible", openai_mock),
+        ):
+            asyncio.run(
+                jp.judge_single(
+                    task="t", response_x="x", response_y="y",
+                    judge_model="claude-opus-4-7", cwd="/tmp", swapped=False,
+                )
+            )
+        assert single_q_mock.await_count == 1
+        assert openai_mock.await_count == 0
+
+    def test_deepseek_id_uses_openai_compatible_not_single_query(self):
+        single_q_mock = AsyncMock(return_value=(_judge_text("X"), 0.0))
+        openai_mock = AsyncMock(return_value=_judge_text("Y"))
+        with (
+            patch("langgraph_agents.eval.judge_pairwise.single_query", single_q_mock),
+            patch("langgraph_agents.eval.judge_pairwise.query_openai_compatible", openai_mock),
+        ):
+            vote = asyncio.run(
+                jp.judge_single(
+                    task="t", response_x="x", response_y="y",
+                    judge_model="deepseek-v4-pro", cwd="/tmp", swapped=False,
+                )
+            )
+        assert openai_mock.await_count == 1
+        assert single_q_mock.await_count == 0
+        assert vote.preference == "Y"
+
+    def test_gpt_id_uses_openai_compatible(self):
+        openai_mock = AsyncMock(return_value=_judge_text("X"))
+        with patch("langgraph_agents.eval.judge_pairwise.query_openai_compatible", openai_mock):
+            asyncio.run(
+                jp.judge_single(
+                    task="t", response_x="x", response_y="y",
+                    judge_model="gpt-4o-2024-11-20", cwd="/tmp", swapped=False,
+                )
+            )
+        assert openai_mock.await_count == 1

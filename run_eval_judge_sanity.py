@@ -3,47 +3,42 @@
 Re-judges six already-decided cross-quadrant cells from
 ``logs/eval_2a/judgments.jsonl`` (Variant B Opus 4.6 vs Variant B Opus 4.7,
 round-matched at 3rnd and 7rnd, all three tasks) using a non-Claude judge
-(DeepSeek V4 Pro by default — same OpenAI-compatible API surface, ~6× cheaper
-than GPT-4o, and the cost margin matters because Phase 0.1 may escalate to a
-permanent third judge across Phases 2–3 if it finds bias). The Claude judges
-(opus + sonnet) returned 12/12 unanimous wins for the 4.7 side on these cells;
-this script tests whether that unanimity survives a cross-family judge.
+(DeepSeek V4 Pro by default). The Claude judges (opus + sonnet) returned
+12/12 unanimous wins for the 4.7 side on these cells; this script tests
+whether that unanimity survives a cross-family judge.
 
 Design follows ``docs/experiment_003_plan.md`` §3.1:
 
 - Same ``JUDGE_PAIRWISE_PROMPT`` and ``parse_judgement`` parsing as the
-  Claude pipeline — every variable held constant except judge identity.
+  production eval — every variable held constant except judge identity.
 - Position-bias correction: each cell judged twice (natural + swapped); a
-  flipped vote collapses to "tie" the same way the Claude eval does.
+  flipped vote collapses to "tie".
 - Output written atomically to ``logs/eval_judge_sanity/results.json`` with
-  both per-cell records and an aggregate. The decision rule from §3.1 is
-  evaluated and recorded so the outcome is unambiguous.
+  per-cell records, raw reasoning text, and an aggregate scoring against
+  the §3.1 decision rule (robust / inflated / refuted).
 
-Provider routing is env-driven so the same script can run against any
-OpenAI-compatible endpoint without code changes:
-
-  JUDGE_SANITY_PROVIDER  one of: deepseek (default), openai, custom
-  JUDGE_SANITY_MODEL     model id (defaults: deepseek-v4-pro / gpt-4o-2024-11-20)
-  JUDGE_SANITY_BASE_URL  override base_url (used when PROVIDER=custom)
-  JUDGE_SANITY_API_KEY   override env var name (used when PROVIDER=custom)
-
-Cost (DeepSeek V4 Pro, current promo pricing): ~12 calls × ~$0.007 ≈ $0.08.
+The judge transport is shared with the production eval pipeline via
+``langgraph_agents.eval.judge_backend.query_openai_compatible`` — pass any
+model id the backend recognises (deepseek-*, gpt-*, o*-*) via ``--model``.
 """
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
-import os
 import sys
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Literal
 
-# Reuse the production judge primitives so the only thing that varies is
-# the model that emits the verdict.
-from langgraph_agents.eval.judge_pairwise import parse_judgement
+from langgraph_agents.eval.judge_backend import classify_by_model, query_openai_compatible
+from langgraph_agents.eval.judge_pairwise import (
+    JUDGE_SYSTEM_PROMPT,
+    JudgeVote,
+    parse_judgement,
+)
 from langgraph_agents.pipeline.prompts import JUDGE_PAIRWISE_PROMPT
 
 logger = logging.getLogger(__name__)
@@ -52,71 +47,13 @@ REPO_ROOT = Path(__file__).resolve().parent
 MATRIX_DIR = REPO_ROOT / "logs" / "matrix_2a_rounds"
 OUT_DIR = REPO_ROOT / "logs" / "eval_judge_sanity"
 
+DEFAULT_MODEL = "deepseek-v4-pro"
+
 # Six cross-quadrant cells. Round-matched (3rnd-vs-3rnd, 7rnd-vs-7rnd) so
 # the only varying axis is model generation. config_a is always 4.6,
 # config_b is always 4.7; preferred="B" means the judge picked 4.7.
 TASKS = ("architectural_review_auth", "design_testing_strategy", "migration_postgres_dynamo")
 CONFIG_PAIRS = (("B-opus46-3rnd", "B-opus47-3rnd"), ("B-opus46-7rnd", "B-opus47-7rnd"))
-
-JUDGE_SYSTEM_PROMPT = (
-    "You are a strict, calibrated judge comparing AI responses. "
-    "Follow the required output format exactly."
-)
-
-# Provider routing — every entry is OpenAI-compatible at the wire level.
-PROVIDERS: dict[str, dict[str, str | None]] = {
-    "deepseek": {
-        "base_url": "https://api.deepseek.com",
-        "api_key_env": "DEEPSEEK_API_KEY",
-        "default_model": "deepseek-v4-pro",
-    },
-    "openai": {
-        "base_url": None,  # SDK default
-        "api_key_env": "OPENAI_API_KEY",
-        "default_model": "gpt-4o-2024-11-20",
-    },
-}
-
-
-@dataclass(frozen=True)
-class ProviderConfig:
-    provider: str
-    base_url: str | None
-    api_key: str
-    model: str
-
-
-def _resolve_provider(model_override: str | None, provider_override: str | None) -> ProviderConfig:
-    """Pick provider/base_url/api_key/model from CLI args + env vars.
-
-    PROVIDER=custom uses JUDGE_SANITY_BASE_URL + JUDGE_SANITY_API_KEY_ENV +
-    JUDGE_SANITY_MODEL — the escape hatch for any other OpenAI-compatible
-    endpoint (Azure, OpenRouter, a vLLM host, etc.).
-    """
-    provider = provider_override or os.environ.get("JUDGE_SANITY_PROVIDER", "deepseek")
-    if provider == "custom":
-        base_url = os.environ.get("JUDGE_SANITY_BASE_URL")
-        key_env = os.environ.get("JUDGE_SANITY_API_KEY_ENV", "JUDGE_SANITY_API_KEY")
-        api_key = os.environ.get(key_env, "")
-        model = model_override or os.environ.get("JUDGE_SANITY_MODEL", "")
-        if not (base_url and api_key and model):
-            raise RuntimeError(
-                "PROVIDER=custom requires JUDGE_SANITY_BASE_URL, "
-                f"{key_env}, and JUDGE_SANITY_MODEL (or --model) to all be set"
-            )
-        return ProviderConfig(provider, base_url, api_key, model)
-    if provider not in PROVIDERS:
-        raise RuntimeError(f"unknown provider {provider!r}; known: {sorted(PROVIDERS)} or 'custom'")
-    cfg = PROVIDERS[provider]
-    key_env = cfg["api_key_env"]
-    assert key_env is not None
-    api_key = os.environ.get(key_env, "")
-    if not api_key:
-        raise RuntimeError(f"{key_env} not set (provider={provider})")
-    default_model = cfg["default_model"]
-    assert default_model is not None
-    model = model_override or os.environ.get("JUDGE_SANITY_MODEL", default_model)
-    return ProviderConfig(provider, cfg["base_url"], api_key, model)
 
 
 @dataclass(frozen=True)
@@ -132,15 +69,15 @@ class CellResult:
     config_a: str
     config_b: str
     judge_model: str
-    natural_preference: str  # raw X/Y/TIE/UNPARSEABLE from natural-order call
-    swapped_preference: str  # raw X/Y/TIE/UNPARSEABLE from swapped-order call
+    natural_preference: str
+    swapped_preference: str
     natural_confidence: str
     swapped_confidence: str
     natural_reasoning: str
     swapped_reasoning: str
     preferred: Literal["A", "B", "tie"]
     position_bias_detected: bool
-    claude_consensus_preferred: Literal["A", "B", "tie"]  # what Claude judges said
+    claude_consensus_preferred: Literal["A", "B", "tie"]
     agrees_with_claude: bool
 
 
@@ -158,7 +95,7 @@ def _read_task(task: str) -> str:
         body = corpus.read_text(encoding="utf-8")
         # Strip the "## Expected response shape" rubric — judge must not see it.
         head = body.split("## Expected response shape", 1)[0]
-        # Also strip the leading "# Task: <name>" line for parity with the pipeline.
+        # Strip the leading "# Task: <name>" line for parity with the pipeline.
         lines = head.splitlines()
         if lines and lines[0].lstrip().startswith("# Task"):
             lines = lines[1:]
@@ -168,16 +105,16 @@ def _read_task(task: str) -> str:
 
 
 def _claude_consensus(cell: Cell) -> Literal["A", "B", "tie"]:
-    """The collapsed Claude-judge verdict (opus + sonnet) for this cell.
-
-    All six cells are 12/12 unanimous in the existing ``logs/eval_2a/judgments.jsonl``;
-    we look it up rather than hard-code, so a corrupted source file fails loudly.
-    """
+    """The collapsed Claude-judge verdict (opus + sonnet) for this cell."""
     src = REPO_ROOT / "logs" / "eval_2a" / "judgments.jsonl"
     pref: set[str] = set()
     for line in src.read_text(encoding="utf-8").splitlines():
         rec = json.loads(line)
-        if rec["task_id"] == cell.task_id and rec["config_a"] == cell.config_a and rec["config_b"] == cell.config_b:
+        if (
+            rec["task_id"] == cell.task_id
+            and rec["config_a"] == cell.config_a
+            and rec["config_b"] == cell.config_b
+        ):
             pref.add(rec["preferred"])
     if not pref:
         raise RuntimeError(f"no Claude judgments found for {cell}")
@@ -187,51 +124,21 @@ def _claude_consensus(cell: Cell) -> Literal["A", "B", "tie"]:
     return only  # type: ignore[return-value]
 
 
-def _judge_once(client, *, task_body: str, response_x: str, response_y: str, model: str, swapped: bool):
-    """Single judge call. Returns the parsed JudgeVote.
-
-    ``max_tokens`` must be generous because thinking-mode models (DeepSeek V4
-    Pro, OpenAI o-series) consume completion budget on internal reasoning
-    before emitting any visible content. The first run of this script used
-    max_tokens=600 and every call returned empty ``content`` because the
-    model spent the whole budget reasoning. 8000 is well within DeepSeek V4's
-    384K cap and is only billed on tokens actually emitted.
-
-    If ``content`` still comes back empty but ``reasoning_content`` is
-    populated, we attempt a last-ditch parse against the reasoning body —
-    the model often restates its answer in chain-of-thought even when it
-    fails to land the formatted block.
-    """
-    prompt = JUDGE_PAIRWISE_PROMPT.format(
-        task=task_body, response_x=response_x, response_y=response_y
-    )
-    resp = client.chat.completions.create(
+async def _judge_once(*, task_body: str, response_x: str, response_y: str, model: str, swapped: bool) -> JudgeVote:
+    """Single judge call via the shared backend. Same wire path as production eval."""
+    prompt = JUDGE_PAIRWISE_PROMPT.format(task=task_body, response_x=response_x, response_y=response_y)
+    text = await query_openai_compatible(
+        system_prompt=JUDGE_SYSTEM_PROMPT,
+        user_message=prompt,
         model=model,
-        messages=[
-            {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0,
-        max_tokens=8000,
     )
-    msg = resp.choices[0].message
-    text = msg.content or ""
-    if not text:
-        rc = getattr(msg, "reasoning_content", None) or ""
-        if rc:
-            logger.warning(
-                "empty content (finish_reason=%s, completion_tokens=%s) — "
-                "falling back to reasoning_content (%d chars)",
-                resp.choices[0].finish_reason, getattr(resp.usage, "completion_tokens", "?"), len(rc),
-            )
-            text = rc
     return parse_judgement(text, judge_model=model, swapped=swapped)
 
 
-def _collapse(natural, swapped) -> tuple[Literal["A", "B", "tie"], bool]:
+def _collapse(natural: JudgeVote, swapped: JudgeVote) -> tuple[Literal["A", "B", "tie"], bool]:
     """Same X/Y → A/B mapping the production eval uses."""
 
-    def to_ab(vote) -> Literal["A", "B", "tie"]:
+    def to_ab(vote: JudgeVote) -> Literal["A", "B", "tie"]:
         if vote.preference in ("UNPARSEABLE", "TIE"):
             return "tie"
         if vote.swapped:
@@ -246,7 +153,7 @@ def _collapse(natural, swapped) -> tuple[Literal["A", "B", "tie"], bool]:
     return (nat if nat != "tie" else swp), False
 
 
-def run(*, provider: str | None, model: str | None, dry_run: bool, force: bool) -> int:
+async def _run_async(*, model: str, force: bool) -> int:
     out_path = OUT_DIR / "results.json"
     if out_path.exists() and not force:
         logger.error("output already exists at %s — pass --force to overwrite", out_path)
@@ -258,24 +165,15 @@ def run(*, provider: str | None, model: str | None, dry_run: bool, force: bool) 
         cons = _claude_consensus(c)
         logger.info("  %s | %s vs %s | Claude says: %s", c.task_id, c.config_a, c.config_b, cons)
 
-    if dry_run:
-        # Dry-run does not require an api key — we want this branch to work
-        # against an unconfigured shell so the wiring can be inspected without
-        # provisioning credentials.
-        try:
-            cfg = _resolve_provider(model, provider)
-            logger.info("provider=%s model=%s base_url=%s", cfg.provider, cfg.model, cfg.base_url or "<default>")
-        except RuntimeError as exc:
-            logger.info("provider not configured (%s) — set the appropriate env var before live run", exc)
-        logger.info("dry-run mode — no API calls dispatched")
-        return 0
+    backend = classify_by_model(model)
+    if backend == "claude_cli":
+        raise RuntimeError(
+            f"model {model!r} resolves to the Claude CLI transport — this script "
+            "is designed to test a non-Claude (cross-family) judge against the "
+            "Claude-judge baseline. Pick a deepseek-* / gpt-* / o*-* model."
+        )
+    logger.info("judge model=%s (provider=%s)", model, backend.provider)
 
-    cfg = _resolve_provider(model, provider)
-    logger.info("provider=%s model=%s base_url=%s", cfg.provider, cfg.model, cfg.base_url or "<default>")
-
-    from openai import OpenAI
-
-    client = OpenAI(api_key=cfg.api_key, base_url=cfg.base_url) if cfg.base_url else OpenAI(api_key=cfg.api_key)
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     results: list[CellResult] = []
@@ -285,11 +183,11 @@ def run(*, provider: str | None, model: str | None, dry_run: bool, force: bool) 
         resp_a = _read_response(cell.config_a, cell.task_id)
         resp_b = _read_response(cell.config_b, cell.task_id)
 
-        natural = _judge_once(
-            client, task_body=task_body, response_x=resp_a, response_y=resp_b, model=cfg.model, swapped=False
+        natural = await _judge_once(
+            task_body=task_body, response_x=resp_a, response_y=resp_b, model=model, swapped=False
         )
-        swapped = _judge_once(
-            client, task_body=task_body, response_x=resp_b, response_y=resp_a, model=cfg.model, swapped=True
+        swapped = await _judge_once(
+            task_body=task_body, response_x=resp_b, response_y=resp_a, model=model, swapped=True
         )
         preferred, bias = _collapse(natural, swapped)
         consensus = _claude_consensus(cell)
@@ -298,7 +196,7 @@ def run(*, provider: str | None, model: str | None, dry_run: bool, force: bool) 
                 task_id=cell.task_id,
                 config_a=cell.config_a,
                 config_b=cell.config_b,
-                judge_model=cfg.model,
+                judge_model=model,
                 natural_preference=natural.preference,
                 swapped_preference=swapped.preference,
                 natural_confidence=natural.confidence,
@@ -318,14 +216,13 @@ def run(*, provider: str | None, model: str | None, dry_run: bool, force: bool) 
 
     n_total = len(results)
     n_agree = sum(1 for r in results if r.agrees_with_claude)
-    n_b_wins = sum(1 for r in results if r.preferred == "B")  # B = 4.7 side
+    n_b_wins = sum(1 for r in results if r.preferred == "B")
     n_a_wins = sum(1 for r in results if r.preferred == "A")
     n_tie = sum(1 for r in results if r.preferred == "tie")
     n_bias = sum(1 for r in results if r.position_bias_detected)
 
-    # Decision rule per docs/experiment_003_plan.md §3.1.
-    # Cross-family judge's win-rate for the 4.7 side, with ties counted as
-    # 0.5 (standard tie-handling in pairwise-preference reporting).
+    # Decision rule per docs/experiment_003_plan.md §3.1. Win-rate for the
+    # 4.7 side with ties counted as 0.5.
     judge_pref_47 = (n_b_wins + 0.5 * n_tie) / n_total if n_total else 0.0
     if judge_pref_47 >= 0.85:
         verdict = "robust"
@@ -335,8 +232,8 @@ def run(*, provider: str | None, model: str | None, dry_run: bool, force: bool) 
         verdict = "refuted"
 
     aggregate = {
-        "provider": cfg.provider,
-        "judge_model": cfg.model,
+        "provider": backend.provider,
+        "judge_model": model,
         "n_cells": n_total,
         "n_agree_with_claude": n_agree,
         "n_b_wins": n_b_wins,
@@ -362,18 +259,27 @@ def run(*, provider: str | None, model: str | None, dry_run: bool, force: bool) 
     return 0
 
 
+def _dry_run(model: str) -> int:
+    cells = [Cell(task, a, b) for (a, b) in CONFIG_PAIRS for task in TASKS]
+    logger.info("planned cells: %d (× 2 orders = %d API calls)", len(cells), len(cells) * 2)
+    for c in cells:
+        cons = _claude_consensus(c)
+        logger.info("  %s | %s vs %s | Claude says: %s", c.task_id, c.config_a, c.config_b, cons)
+    backend = classify_by_model(model)
+    if backend == "claude_cli":
+        logger.info("model %s resolves to Claude CLI — not a valid cross-family judge", model)
+    else:
+        logger.info("model=%s provider=%s base_url=%s", model, backend.provider, backend.base_url or "<default>")
+    logger.info("dry-run mode — no API calls dispatched")
+    return 0
+
+
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
-        "--provider",
-        default=None,
-        choices=("deepseek", "openai", "custom"),
-        help="judge provider (default: deepseek; env: JUDGE_SANITY_PROVIDER)",
-    )
-    p.add_argument(
         "--model",
-        default=None,
-        help="model id; if omitted, uses provider default (env: JUDGE_SANITY_MODEL)",
+        default=DEFAULT_MODEL,
+        help=f"judge model id; transport is inferred from the prefix (default: {DEFAULT_MODEL})",
     )
     p.add_argument("--dry-run", action="store_true", help="list planned calls, do not invoke the API")
     p.add_argument("--force", action="store_true", help="overwrite an existing results.json")
@@ -383,7 +289,9 @@ def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     args = _parse_args(argv)
-    return run(provider=args.provider, model=args.model, dry_run=args.dry_run, force=args.force)
+    if args.dry_run:
+        return _dry_run(args.model)
+    return asyncio.run(_run_async(model=args.model, force=args.force))
 
 
 if __name__ == "__main__":

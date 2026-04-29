@@ -43,7 +43,13 @@ EVAL_DIR = Path("logs/eval")
 JUDGMENTS_PATH = EVAL_DIR / "judgments.jsonl"
 SIMILARITY_PATH = EVAL_DIR / "cross_run_similarity.csv"
 
-JUDGE_MODELS = ["opus", "sonnet"]
+# Three judges as of experiment 003 Phase 0.1 (2026-04-29). DeepSeek was
+# promoted to permanent third judge after 0.1 found Claude judges over-report
+# unanimity by ~25% on cross-quadrant cells; see
+# docs/experiment_003_phase_0_1_results.md. Claude IDs are pinned (not the
+# `opus`/`sonnet` aliases) to guard against silent CLI alias remap, matching
+# the model-pinning refactor in src/langgraph_agents/config.py.
+JUDGE_MODELS = ["claude-opus-4-7", "claude-sonnet-4-6", "deepseek-v4-pro"]
 PARALLEL = 3
 
 CWD = str(Path.cwd())

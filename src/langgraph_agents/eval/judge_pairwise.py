@@ -9,8 +9,19 @@ orders and checking for preference flip is cheap insurance. Multi-judge
 cross-checking is the other lever; we expose a helper ``judge_multi`` that
 runs every (order × judge) combination and returns a structured result.
 
-All LLM calls go through ``single_query``; the judge uses the shared
-``JUDGE_PAIRWISE_PROMPT`` from the pipeline prompts module.
+Two transports are supported, dispatched by model id in
+``judge_backend.classify_by_model``:
+
+* Claude CLI (``opus``/``sonnet``/``haiku`` aliases or ``claude-*`` IDs) →
+  :func:`langgraph_agents.pipeline.session.single_query`.
+* OpenAI-compatible API (``deepseek-*``, ``gpt-*``, ``o*-*``) →
+  :func:`langgraph_agents.eval.judge_backend.query_openai_compatible`.
+
+The dispatch lives inside :func:`judge_single` so callers do not need to
+care which transport they hit. ``single_query`` remains imported here so
+existing tests that patch
+``langgraph_agents.eval.judge_pairwise.single_query`` continue to work for
+the Claude path.
 """
 
 from __future__ import annotations
@@ -20,6 +31,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Literal
 
+from langgraph_agents.eval.judge_backend import is_openai_compatible, query_openai_compatible
 from langgraph_agents.pipeline.prompts import JUDGE_PAIRWISE_PROMPT
 from langgraph_agents.pipeline.session import single_query
 
@@ -106,6 +118,12 @@ def _render_prompt(task: str, response_x: str, response_y: str) -> str:
     )
 
 
+JUDGE_SYSTEM_PROMPT: str = (
+    "You are a strict, calibrated judge comparing AI responses. "
+    "Follow the required output format exactly."
+)
+
+
 async def judge_single(
     *,
     task: str,
@@ -115,17 +133,27 @@ async def judge_single(
     cwd: str,
     swapped: bool = False,
 ) -> JudgeVote:
-    """One judge call for one orientation. No bias mitigation on its own."""
+    """One judge call for one orientation. No bias mitigation on its own.
+
+    Dispatches by model id: ``deepseek-*`` / ``gpt-*`` / ``o*-*`` go through
+    the OpenAI-compatible path; everything else (``opus``/``sonnet``/``haiku``
+    aliases plus ``claude-*`` explicit IDs) goes through the Claude CLI via
+    :func:`single_query`.
+    """
     prompt = _render_prompt(task, response_x, response_y)
-    response, _cost = await single_query(
-        system_prompt=(
-            "You are a strict, calibrated judge comparing AI responses. "
-            "Follow the required output format exactly."
-        ),
-        user_message=prompt,
-        cwd=cwd,
-        model=judge_model,
-    )
+    if is_openai_compatible(judge_model):
+        response = await query_openai_compatible(
+            system_prompt=JUDGE_SYSTEM_PROMPT,
+            user_message=prompt,
+            model=judge_model,
+        )
+    else:
+        response, _cost = await single_query(
+            system_prompt=JUDGE_SYSTEM_PROMPT,
+            user_message=prompt,
+            cwd=cwd,
+            model=judge_model,
+        )
     return parse_judgement(response, judge_model=judge_model, swapped=swapped)
 
 
