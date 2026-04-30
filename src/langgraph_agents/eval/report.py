@@ -27,6 +27,7 @@ from statistics import mean
 from typing import Iterable, Mapping, Sequence
 
 from .judge_pairwise import PairwiseOutcome
+from .metrics import METRIC_CLASSIFICATIONS
 
 logger = logging.getLogger(__name__)
 
@@ -219,6 +220,7 @@ def build_report(
         "final_plan_tokens_est",
         "concept_coverage_keyword",
         "concept_coverage_token_jaccard",
+        "failure_mode_hit_rate",
         "round_count",
         "compaction_count",
         "stance_flip_count",
@@ -295,6 +297,18 @@ def build_report(
             md.append(f"| {cid} | {rate if rate == float('inf') else f'{rate:.2f}'} |\n")
     else:
         md.append("- (no cost data)\n")
+
+    md.append("\n## Metric classifications\n")
+    md.append(
+        "Each per-run metric is tagged ``judged-independent`` (positively "
+        "correlates with judged win-rate over historical data) or "
+        "``decorative`` (does not, or unproven). Decorative metrics are "
+        "computed because they're cheap; do not treat them as quality "
+        "proxies in conclusions.\n\n"
+    )
+    md.append("| metric | classification |\n|---|---|\n")
+    for metric_name, klass in sorted(METRIC_CLASSIFICATIONS.items()):
+        md.append(f"| `{metric_name}` | {klass} |\n")
 
     md.append("\n## Pairwise win matrix\n")
     md.append("Values are row-vs-column win rate (position-bias flagged → 0.5).\n\n")

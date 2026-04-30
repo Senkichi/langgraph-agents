@@ -10,11 +10,20 @@ Per-run metrics (``run_metrics``):
     lowercase token appears anywhere in the final plan
   - ``concept_coverage_token_jaccard`` — Jaccard between final-plan tokens
     and the expected-concept token set (complements raw presence)
+  - ``failure_mode_hit_rate`` — fraction of task ``failure_modes`` whose phrase
+    substring-matches the final plan (lower = better)
   - Variant-B extras: ``round_count``, ``compaction_count``, ``stance_flip_count``
 
 Cross-run metrics (``cross_run_similarity``):
   - pairwise token-Jaccard over final plans per task, so you can see whether
     configurations converge or diverge on the same task.
+
+Metric classification (``METRIC_CLASSIFICATIONS``):
+  Each metric is tagged ``decorative`` (does not track judged win-rate, or
+  unproven) or ``judged-independent`` (positively correlates with judged
+  win-rate over historical data). Per experiment 003 plan §4.2: keep coverage
+  as decorative until proven otherwise; promote a metric to judged-independent
+  only after a backfill validation against ``logs/eval_*/judgments.jsonl``.
 """
 
 from __future__ import annotations
@@ -76,6 +85,55 @@ def concept_coverage_token_jaccard(final_plan: str, concepts: Iterable[str]) -> 
     inter = len(concept_tokens & plan_tokens)
     union = len(concept_tokens | plan_tokens)
     return inter / union if union else 0.0
+
+
+def failure_mode_hit_rate(final_plan: str, failure_modes: Iterable[str]) -> float:
+    """Fraction of task failure-mode phrases that substring-match the final plan.
+
+    Each task's ``failure_modes`` list describes antipatterns the response
+    should avoid; a hit is a coarse signal that the response committed the
+    antipattern. The match is case-insensitive substring against the lowercased
+    plan.
+
+    Lower is better. Empty failure_modes → 0.0 (no antipatterns to commit).
+
+    Recall caveat: rubric phrases are written for human readers ("rubber-stamps
+    as 'mostly fine'", "no critique of the 30-day lifetime"), not detection
+    keywords, so an absolute hit rate near zero does not mean the antipatterns
+    are absent — only that they were not committed in literal-substring form.
+    The metric is most useful as a comparative signal across configurations
+    on the same task. Validate against judged win-rate before treating as
+    judged-independent (see ``METRIC_CLASSIFICATIONS``).
+    """
+    failure_modes = list(failure_modes)
+    if not failure_modes:
+        return 0.0
+    haystack = (final_plan or "").lower()
+    hits = sum(1 for fm in failure_modes if fm.lower() in haystack)
+    return hits / len(failure_modes)
+
+
+# ---------------------------------------------------------------------------
+# Metric classification
+# ---------------------------------------------------------------------------
+
+
+# "decorative" → does not track judged win-rate (or unproven against it).
+# "judged-independent" → positively correlates with judged win-rate over
+#   historical data (logs/eval_*/judgments.jsonl).
+# Default = decorative. Promote only after a backfill validation pass.
+METRIC_CLASSIFICATIONS: dict[str, str] = {
+    "concept_coverage_keyword": "decorative",
+    "concept_coverage_token_jaccard": "decorative",
+    "failure_mode_hit_rate": "decorative",
+    "final_plan_chars": "decorative",
+    "final_plan_tokens_est": "decorative",
+    "total_cost_usd": "decorative",
+    "wall_clock_seconds": "decorative",
+    "round_count": "decorative",
+    "compaction_count": "decorative",
+    "stance_flip_count": "decorative",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +220,9 @@ def run_metrics(
         ),
         "concept_coverage_token_jaccard": concept_coverage_token_jaccard(
             final_plan, task.key_concepts
+        ),
+        "failure_mode_hit_rate": failure_mode_hit_rate(
+            final_plan, task.failure_modes
         ),
         "round_count": None,
         "compaction_count": None,
