@@ -1,0 +1,5 @@
+# Per-project anatomy scanner config. See ~/.claude/hooks/token-opt/session-init.py.
+
+# logs/ holds 1100+ JSONL workflow traces — pure runtime output.
+# Code surface (src/ + tests/ + docs/) fits well under the default 500 cap.
+skip_dirs = ["logs"]
